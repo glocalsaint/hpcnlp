@@ -1,0 +1,18 @@
+terminate called after throwing an instance of 'std::bad_alloc'
+  what():  std::bad_alloc
+[hpb0205:09049] *** Process received signal ***
+[hpb0205:09049] Signal: Aborted (6)
+[hpb0205:09049] Signal code:  (-6)
+[hpb0205:09049] [ 0] /lib64/libpthread.so.0(+0xf100)[0x2ab0ae81c100]
+[hpb0205:09049] [ 1] /lib64/libc.so.6(gsignal+0x37)[0x2ab0aea5e5f7]
+[hpb0205:09049] [ 2] /lib64/libc.so.6(abort+0x148)[0x2ab0aea5fce8]
+[hpb0205:09049] [ 3] /shared/apps/gcc/4.9.3/lib64/libstdc++.so.6(_ZN9__gnu_cxx27__verbose_terminate_handlerEv+0x15d)[0x2ab0ae020a5d]
+[hpb0205:09049] [ 4] /shared/apps/gcc/4.9.3/lib64/libstdc++.so.6(+0x5d996)[0x2ab0ae01e996]
+[hpb0205:09049] [ 5] /shared/apps/gcc/4.9.3/lib64/libstdc++.so.6(+0x5d9e1)[0x2ab0ae01e9e1]
+[hpb0205:09049] [ 6] /shared/apps/gcc/4.9.3/lib64/libstdc++.so.6(+0x5dc29)[0x2ab0ae01ec29]
+[hpb0205:09049] [ 7] /shared/apps/gcc/4.9.3/lib64/libstdc++.so.6(+0x5e1a9)[0x2ab0ae01f1a9]
+[hpb0205:09049] [ 8] /shared/apps/gcc/4.9.3/lib64/libstdc++.so.6(_Znam+0x9)[0x2ab0ae01f209]
+[hpb0205:09049] [ 9] a.out[0x40eda5]
+[hpb0205:09049] [10] /lib64/libc.so.6(__libc_start_main+0xf5)[0x2ab0aea4ab15]
+[hpb0205:09049] [11] a.out[0x40b699]
+[hpb0205:09049] *** End of error message ***

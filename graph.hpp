@@ -61,17 +61,26 @@ struct node
 
  };
 
-struct node_comparator
+struct edge_comparator
 {
     inline bool operator() (const std::pair<node*, double> &one, const std::pair<node*, double> &two)
     {
         return one.first->frequency > two.first->frequency;
     }
 };
+
+struct node_comparator
+{
+    inline bool operator() (const node* one, const node* two)
+    {
+        return one->frequency > two->frequency;
+    }
+};
+
  class Nodelist
  {
 
- 	std::list<node*> nodelist;
+ 	std::vector<node*> nodelist;
  public:
     ~Nodelist()
     {
@@ -79,14 +88,14 @@ struct node_comparator
     }
     void get_roothubs(std::map<string,std::vector<string>> &roothubs)
     {        
-        
+        std::sort(nodelist.begin(), nodelist.end(), node_comparator());
         for(auto &node: nodelist)
         {
             vector<string> roothubedges;
             if(node->isGoodCandidate==-1)continue;
             auto &edges = node->edges;
             double average=0.0;int i=0;
-            std::sort(edges.begin(), edges.end(), node_comparator());
+            std::sort(edges.begin(), edges.end(), edge_comparator());
             for(auto it = edges.begin();i<6 && it!=edges.end();it++)
             {
                 if(it->first->isGoodCandidate!=-1)
@@ -117,24 +126,24 @@ struct node_comparator
     }
  	void insert_node(node *newnode)
     {        
-        //cout<<"Inserting node into list:"<<newnode->str<<endl<<flush;
-        if(!nodelist.empty() && nodelist.back()->frequency < newnode->frequency)
-        {            
-            for (std::list<node*>::iterator it = nodelist.begin(); it != nodelist.end(); it++)
-            {
-                if((*it)->frequency<=newnode->frequency)
-                { 
-                    nodelist.insert (it,newnode);   
-                    break;
-                }
-            }
-        }
-        else
+        // //cout<<"Inserting node into list:"<<newnode->str<<endl<<flush;
+        // if(!nodelist.empty() && nodelist.back()->frequency < newnode->frequency)
+        // {            
+        //     for (std::list<node*>::iterator it = nodelist.begin(); it != nodelist.end(); it++)
+        //     {
+        //         if((*it)->frequency<=newnode->frequency)
+        //         { 
+        //             nodelist.insert (it,newnode);   
+        //             break;
+        //         }
+        //     }
+        // }
+        // else
             nodelist.push_back(newnode);
     }
     void print()
     {
-        for (std::list<node*>::iterator it = nodelist.begin(); it != nodelist.end(); it++)
+        for (auto it = nodelist.begin(); it != nodelist.end(); it++)
         {
             cout<<(*it)->str<<"("<<(*it)->frequency<<")";
         }
@@ -184,18 +193,19 @@ struct node_comparator
             node *node_ptr=new node();
             string entrystr(entry.first);
             node_ptr->str=entrystr;
-            //cout<<"created node with string:"<<node_ptr->str<<endl<<flush;
             node_ptr->frequency=frequency_map[entrystr];
             stringtonode_map[entrystr]=node_ptr;
             nodelist.insert_node(node_ptr);
             no_of_nodes++;
         }
+
         //nodelist.print();
         //going through all second level nodes and if there is string which is in first level node then form an edge.
         clock_t firstend = clock();
         double timeforinserting =0;
         for(auto &entry: submap)
         {
+
             string fl_str(entry.first);
             if(localmap.find(fl_str)!=localmap.end())
             {
@@ -211,10 +221,11 @@ struct node_comparator
                     {                        
                         node *second_node;
                         second_node = stringtonode_map[sl_str];
+                        //max of cooccurance count divided by frequency of the two.
                         double weight= 1-std::max((double)slentry.second/first_node->frequency , (double)slentry.second/second_node->frequency);
                         clock_t insertstart = clock();
                         first_node->insert_edge(second_node, weight);
-                        second_node->insert_edge(first_node, weight); 
+                        //second_node->insert_edge(first_node, weight); 
                         timeforinserting += double(clock() - insertstart);
                         no_of_edges++;
                         degree_of_node++;
