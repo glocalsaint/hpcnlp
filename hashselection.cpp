@@ -21,160 +21,15 @@
     #include <iomanip>
     #include <functional>
     #include "graph.hpp"
+    #include "src/utility.hpp"
+    #include "src/mpi_datatypes.hpp"
 
     //#include "graph.hpp"
     //#define CHUNKSIZE 100000
-    #define ROUNDROBINSIZE 500
-    #define STRING_LENGTH 30
-    #define NUMWORDS 100
     using namespace std;
 /*///////////Includes and defines/////////////*/
 
-/*///////////////Static Declarations/////////////*/
-    typedef std::unordered_map<string, std::unordered_map<string, int>> map_stringtostringint;
 
-    unsigned long mapsize(const std::unordered_map<string,std::unordered_map<string,int>> &map){
-        unsigned long mapelements = map.size();
-        unsigned long submapelements =0;
-        for(std::unordered_map<string,std::unordered_map<string,int>>::const_iterator it = map.begin(); it != map.end(); ++it){
-            submapelements += (it->second).size();        
-        }
-        
-        unsigned long mapsize = (mapelements+submapelements) *(STRING_LENGTH+4);
-        //mapsize+=mapelements*STRING_LENGTH;
-        //mapsize+=submapelements*92;
-        mapsize = mapsize/(1024*1024);
-        return mapsize;
-    }
-
-     std::vector<string> getallfilenames(boost::filesystem::path p)
-    {
-        std::vector<string> filepaths;
-        boost::filesystem::directory_iterator end_ptr;      
-        boost::filesystem::directory_iterator dir(p);   
-        for (;dir != end_ptr; dir++) {
-            p = boost::filesystem::path(*dir);
-            if(is_directory(p))
-            {
-                getallfilenames(p);
-            }
-            else
-            {
-                    string dirpath(dir->path().parent_path().string() );
-                    string filename(p.stem().string());
-                    filepaths.push_back(dir->path().string());
-            }
-        }
-        return filepaths;
-    }
-/*///////////////Static Declarations/////////////*/
-
-/*///////////////Insert to Local Map Function/////////////////*/         
-     void insert_to_localmap(std::set<string> &stringset, std::unordered_map<string,std::unordered_map<string,int>> &localmap)
-     {
-        
-        std::set<string>::iterator it;
-        std::set<string>::iterator iter;
-        int j=0;
-        it=stringset.begin();
-        int myrank = MPI::COMM_WORLD.Get_rank(); 
-        //processes local map that does not have the string entry
-        for(int current_index=0; it!=stringset.end(); it++,current_index++,j=0)
-        {
-            string itstr(*it);
-            if(localmap.find(itstr)==localmap.end())
-            {
-                std::unordered_map<string,int> newmap;
-                for(j=0,iter = stringset.begin();iter != stringset.end();++iter)
-                {
-                    string iterstr(*iter);
-                    //add all other words in the sentence as cooccuring words except for the current word.
-                    //current_index==j refers the word which we are dealing with now.
-                    if(current_index==j){j++; continue;}
-
-                    newmap[iterstr]=1;
-                    j++;
-                }
-                localmap[itstr]=newmap;
-            }
-            //processes local map that has the string entry
-            else
-            {        
-                
-                std::unordered_map<string,int> &stringmap = localmap[*it];
-                for(j=0,iter = stringset.begin();iter != stringset.end();++iter)
-                {
-                    string iterstr(*iter);
-                    //skip the current word
-                    if(current_index==j) {j++;continue;}
-                    if(stringmap.find(iterstr)==stringmap.end())
-                    {
-                        stringmap[iterstr]=1;
-                    }
-                    else
-                    {
-                        int stringcount = stringmap[iterstr]+1;
-                        stringmap[iterstr] = stringcount;                    
-                    }
-                    j++;
-                }
-            }
-        }
-     }
-/*///////////////Insert to Local Map Function/////////////////*/         
-
-
-/*///////////////Process String Function/////////////////*/              
-     void process_string(string &str, std::unordered_map<string,std::unordered_map<string,int>> &localmap, std::unordered_map<string, int> &frequencymap)
-     {
-            
-            int myrank = MPI::COMM_WORLD.Get_rank(); 
-            int current_index=0, index=0;
-            int length = str.length();
-            
-            std::set<string> uniquewords;
-            int k=0;
-            while(index<length)
-            {
-                index = str.find('\n',index+1);
-                if(current_index+1 == index) continue;
-                if(index==string::npos) break;
-                string line = str.substr(current_index,index - current_index);
-                boost::char_separator<char> sep("\t ");
-                boost::tokenizer<boost::char_separator<char>> tokens(line, sep);
-                int i=0; string two,three;
-                for (const auto& t : tokens) {
-                    if(i==2) {two.assign(t); }//if(isdigit(two.at(0)))break;}
-                    if(i==3)
-                    {
-                        if(t.compare("NN")==0 || t.compare("ADJ")==0)
-                        {
-                            string uniqueword(two+":"+t);
-                            if(uniqueword.length()>STRING_LENGTH-2)break;
-                            uniquewords.insert(uniqueword);
-                            if(frequencymap.find(uniqueword)==frequencymap.end())
-                            {
-                                frequencymap[uniqueword]=1;
-                            }
-                            else
-                            {
-                                int stringcount = frequencymap[uniqueword]+1;
-                                frequencymap[uniqueword] = stringcount;
-                            }
-                        }
-                    }
-                    i++;
-                    if(i>3) break;
-                }
-                if((str[index+1]=='\n' ||index==str.size()-1) && !uniquewords.empty())
-                {   
-                    insert_to_localmap(uniquewords,localmap);  
-                    uniquewords.clear();                              
-                }
-                current_index=index;
-            }
-     }
-/*///////////////Process String Function/////////////////*/              
 
 int main(int argc, char *argv[]) 
 { 
@@ -191,7 +46,6 @@ int main(int argc, char *argv[])
     MPI_Type_create_struct(1, blocklen0, disp0, type0, &MPI_Customword);
     MPI_Type_commit(&MPI_Customword);
 /*//////Datatype for Sending words*/
-
 /*//////Declarations//////*/
     MPI::Status status; 
     int myrank = MPI::COMM_WORLD.Get_rank(); 
@@ -206,7 +60,6 @@ int main(int argc, char *argv[])
     string bufchar1;
     char filename[128]; 
 /*//////Declarations//////*/    
-
 /*//////Read files in a loop and write initial data to localmap/////*/
     std::clock_t fileprocessing_timestart = clock();
     for(std::vector<string>::iterator it = files.begin(); it != files.end(); ++it)
@@ -300,6 +153,7 @@ int main(int argc, char *argv[])
     if(myrank==0) cout<<" Time taken to process the files: "<< (clock()-fileprocessing_timestart)/(double) CLOCKS_PER_SEC<<"\n";
 /*//////Read files in a loop and write initial data to localmap/////*/    
 /*////////////Sending the strings to hash%size process//////////*/
+    clock_t hashingtime = clock();
     vector<vector<string>> vecgrouped(size, vector<string>(0));
 
     for(auto &entry: localmap){
@@ -429,6 +283,22 @@ int main(int argc, char *argv[])
     delete[] recvdata_head;
     if ( myrank == 0 ) 
         cout << "Process: " << myrank << ". Hashing done. " << "\n";
+    if(myrank==0) cout<<" Time taken for hashing FL words: "<< (clock()-hashingtime)/(double) CLOCKS_PER_SEC<<"\n";
+
+    //if(myrank == 0)
+    {
+        int k=0;
+        for(auto &entry : localmap){
+            //cout << "Process: "<< myrank << ". localmapsizes of tword "<<entry.first<<" "<<frequencymap[entry.first]<<" ::: " << entry.second.size()<<endl;
+            //k++;
+            mystringset.insert(entry.first);
+        }
+        // k=0;
+        // for(auto &entry: mystringset){
+        //     cout << "Frequencymap order :" << frequencymap[entry] << " : "<< entry << ".         lsize: "<< localmap[entry].size()<< endl;
+        // }
+    }
+
 
     // for(auto &entry : localmap)
     //     for(auto pair : entry.second)
@@ -462,16 +332,19 @@ int main(int argc, char *argv[])
     // }
 /*//////////broadcasting flwords and getting the slwords in other processes////////*/
     
-    auto it = localmap.begin();
+    //auto it = localmap.begin();
+    auto it = mystringset.begin();
     int l=0;
     int itcount=-1 * NUMWORDS;
     while( 1 )
     {
         itcount+=NUMWORDS;
         l++;
-        if(myrank == 0) cout << "Process: " << myrank << " itcount: " << itcount <<". Distance: "<< std::distance(localmap.begin(), it) <<endl;
+        if(myrank == 0) cout << "Process: " << myrank << " itcount: " << itcount <<". Distance: "<< std::distance(mystringset.begin(), it) <<endl;
+        clock_t roundtime = clock();
         int sendwords_sl = 1;
-        if ( it == localmap.end() ) sendwords_sl = 0;
+        //if ( it == localmap.end() ) sendwords_sl = 0;
+        if ( it == mystringset.end() ) sendwords_sl = 0;
         int allsendwords_sl[ size ], allsendwordssum;
         MPI_Allgather( &sendwords_sl , 1 , MPI_INT , allsendwords_sl , 1 , MPI_INT , MPI_COMM_WORLD);
         MPI_Allreduce(&sendwords_sl,    &allsendwordssum,    1,    MPI_INT,    MPI_SUM,    MPI_COMM_WORLD);
@@ -481,15 +354,17 @@ int main(int argc, char *argv[])
         std::vector<string> target_words;
         for( int i = 0 ; i < NUMWORDS ; i++ )
         {
-            if ( it == localmap.end() ) break;
-            target_words.push_back(it -> first);
-            for( auto entry : it -> second ){
+            //if ( it == localmap.end() ) break;
+            if ( it == mystringset.end() ) break;
+            //target_words.push_back(it -> first);
+            target_words.push_back(*it);
+            for( auto entry : localmap[*it] ){
                 fl_words.insert( entry.first );
             }
             
             it++;
         }
-
+        //cout << "Process: "<< myrank << ". FL Words Count: " << fl_words.size() << endl;
         vector< vector< string > > vecgrouped_sl( size , vector< string >(0));
         for(auto entry: fl_words){
             vecgrouped_sl[std::hash<string>()(entry)%size].push_back(entry);    
@@ -501,9 +376,9 @@ int main(int argc, char *argv[])
         // cout << "-- " <<endl;
         // }
         int recvsize=0;
-        char *recvdata_scatter=nullptr;
-        char *recvdata_gather=nullptr;
-        char *senddata=nullptr;
+        char *recvdata_scatter=new char[1];
+        char *recvdata_gather=new char[1];
+        char *senddata=new char[1];
         vecgrouped_sl[myrank].clear();
         for( int i = 0 ; i < size ; i++ )
         {
@@ -522,7 +397,7 @@ int main(int argc, char *argv[])
                     senddisplacements[j] = senddisplacements[j-1] + sendcounts[j-1];                    
                 }
                 totalsendsize = senddisplacements[size-1] + sendcounts[size-1];
-
+                //cout <<"Process: " << myrank << ". Totalsendsize:"<<totalsendsize<<endl;
                 senddata = new char[ totalsendsize  ];
                 char *memptr = senddata;
                 for( auto &v_entry : vecgrouped_sl)
@@ -547,7 +422,7 @@ int main(int argc, char *argv[])
             char *memptr = recvdata_scatter;
             int sendwords_sl;
             std::vector<string> fl_words;
-            for ( int j = 0 ; j < recvcount / STRING_LENGTH ; ++j )
+            for ( int j = 0 ; j < recvcount / STRING_LENGTH ; j++ )
             {
                 char fl_word[STRING_LENGTH];
                 memcpy( fl_word , recvdata_scatter , STRING_LENGTH);
@@ -593,8 +468,8 @@ int main(int argc, char *argv[])
                     memptr += sizeofint;    
                  }
             }
-            MPI_Reduce(&tosendwordcount ,    &recvtwords_count,    1,    MPI_INT,    MPI_SUM,  i,    MPI_COMM_WORLD);                
-            MPI_Gather( &sendcount , 1 , MPI_INT , recvcounts , 1 , MPI_INT , i , MPI_COMM_WORLD);
+             MPI_Reduce(&tosendwordcount ,    &recvtwords_count,    1,    MPI_INT,    MPI_SUM,  i,    MPI_COMM_WORLD);                
+             MPI_Gather( &sendcount , 1 , MPI_INT , recvcounts , 1 , MPI_INT , i , MPI_COMM_WORLD);
                         
             if(myrank == i)
             {
@@ -609,7 +484,8 @@ int main(int argc, char *argv[])
                 
             MPI_Gatherv( senddata , sendcount , MPI_CHAR , recvdata_gather , recvcounts, recvdisplacements, MPI_CHAR , i ,  MPI_COMM_WORLD);
             delete [] senddata;
-/*////////////////////////GATHERING///////////////////////////*/            
+/*////////////////////////GATHERING///////////////////////////*/    
+    if(myrank==0 && myrank ==i) cout<<" Time taken for hashing SL words round "<<l<<": "<< (clock()-hashingtime)/(double) CLOCKS_PER_SEC<<". Recv size: "<<recvsize<< "\n";        
         }
         char *recvdata_head = recvdata_gather;
 /*///////////////////////Each process processes the words and adds into its localmap//////////*/     
@@ -651,7 +527,7 @@ int main(int argc, char *argv[])
         for( auto &v: vecgrouped_sl)
             v.clear();
         fl_words.clear();
-        cout << "Process: " << myrank << " itcount Memory occupied: " << mapsize(localmap) + mapsize(localsecondlevelmap) << ". localsecondlevelmap size: "<<localsecondlevelmap.size()<< endl;
+        //cout << "Process: " << myrank << " itcount Memory occupied: " << mapsize(localmap) + mapsize(localsecondlevelmap) << ". localsecondlevelmap size: "<<localsecondlevelmap.size()<< endl;
         // for(auto tword : target_words)
         // {
         //     auto submap = localmap[tword];
