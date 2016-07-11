@@ -1,13 +1,21 @@
 CC=mpic++
 CFLAGS=-std=c++11 -lboost_system -lboost_filesystem  
 
-all: clean mpi.o graph.o
-	$(CC) mpi.o graph.o $(CFLAGS) -l sqlite3 -o a.out
+all: clean graph.o utility.o fileprocessing.o firstlevel.o secondlevel.o mpi.o
+	$(CC) mpi.o fileprocessing.o firstlevel.o secondlevel.o utility.o graph.o  $(CFLAGS) -l sqlite3 -o a.out
 mpi.o:
-	$(CC) -c hashselection.cpp $(CFLAGS) -l sqlite3 -o mpi.o
+	$(CC) -c hashselection.cpp $(CFLAGS) -o mpi.o
+utility.o:
+	$(CC) -c utility.cpp $(CFLAGS) -o utility.o
+fileprocessing.o:
+	$(CC) -c fileprocessing.cpp $(CFLAGS) -o fileprocessing.o
+firstlevel.o:
+	$(CC) -c firstlevel.cpp $(CFLAGS) -o firstlevel.o
+secondlevel.o:
+	$(CC) -c secondlevel.cpp $(CFLAGS) -o secondlevel.o
 graph.o:
 	g++ -c graph.cpp $(CFLAGS) -o graph.o  
 run: all
 	mpirun -np 20 a.out      
 clean:
-	rm -f mpi.o graph.o a.out
+	rm -f mpi.o graph.o firstlevel.o secondlevel.o fileprocessing.o utility.o a.out
