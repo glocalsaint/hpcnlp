@@ -1,7 +1,7 @@
  #include "src/utility.hpp"
 #include "mpi.h"
 void process_secondlevel(int &myrank , int &size){
-
+    clock_t sltime = clock();
 
     auto it = localmap.begin();
     std::set<string> fl_wordset;
@@ -17,7 +17,7 @@ void process_secondlevel(int &myrank , int &size){
         /////////////way to know if all can exit the loop; all have processed SL/////////
 
         int nooftwords=0;
-        while( fl_wordset.size() < 50000 )
+        while( fl_wordset.size() < 100000 )
         {
             if ( it == localmap.end() ) break;
             for( auto entry : it->second ){
@@ -30,7 +30,9 @@ void process_secondlevel(int &myrank , int &size){
         vector<string> fl_vector(fl_wordset.size());
         vector<string> fl_recvvector;
         vector<std::pair<int,int>> sendedgesvector;
+        std::unordered_map<int, vector<int>> edgesmap;
         std::set<string> fl_recv_wordset;
+        std::unordered_map<string, int> fl_recv_map;
         int sendsize = fl_wordset.size() * STRING_LENGTH;
         int all_sendsizes[size];
 
@@ -59,12 +61,14 @@ void process_secondlevel(int &myrank , int &size){
             if ( myrank != current_process )
             {
                 fl_recvvector.resize( all_sendsizes[current_process]/STRING_LENGTH );
+                int index=0;
                 while(memptr < bcast_buffer + all_sendsizes[current_process] )
                 {
                     char fl_word[STRING_LENGTH];
                     memcpy( fl_word , memptr , STRING_LENGTH);
                     //fl_recvvector.push_back(fl_word);
-                    fl_recv_wordset.insert(fl_word);
+                    //fl_recv_wordset.insert(fl_word);
+                    fl_recv_map[fl_word] = index++;
                     memptr += STRING_LENGTH;
                 }
                 if(myrank ==0) cout << "Process: " << myrank << " . number of flwords received: " << fl_recvvector.size() << endl;
@@ -73,68 +77,87 @@ void process_secondlevel(int &myrank , int &size){
                 //for( current_index = 0 ; current_index < fl_recvvector.size() ; current_index++ )
                 //while( current_index < fl_recv_wordset.size() )
                 clock_t startsearchtime = clock();
-                for(auto &current_string : fl_recv_wordset)
+                for(auto &fl_entry : fl_recv_map)                    
                 {
+                    string current_string(fl_entry.first);
                     //string current_string = fl_recvvector[current_index];
                     //string current_string = fl_recv_wordset[current_index];
-                    if ( (std::hash<string>()(current_string )) % size  == myrank )
+                    if ( (std::hash<string>()(current_string)) % size  == myrank )
                     {
                         //if(myrank ==10) cout << "Process: " << myrank << " . came into hash " << endl;
                         for( auto &entry : localmap[current_string])
-                        {                            
-                            auto it = fl_recv_wordset.find(entry.first);
-                            if(it != fl_recv_wordset.end())
-                                sendedgesvector.push_back(std::make_pair(current_index,  std::distance(fl_recv_wordset.begin(), it) ));
+                        {                           
+                            
+                            if(fl_recv_map.find(entry.first) != fl_recv_map.end())
+                                edgesmap[fl_entry.second].push_back(fl_recv_map[entry.first]);//std::distance(fl_recv_wordset.begin(), it) );
+                                //sendedgesvector.push_back(std::make_pair(current_index,  std::distance(fl_recv_wordset.begin(), it) ));
+                                
                         }
                     }
-                    current_index++;
                 }
+                fl_recv_map.clear();
                 if( myrank == size-1 )cout<<"Time taken for search edges " << (clock()-startsearchtime)/(double) CLOCKS_PER_SEC << "\n";        
             }
             //if ( myrank == 0 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << ". Processing no.: " << current_process << ". Came4 "<<endl;
             fl_recvvector.clear();
-            int numberofedges = sendedgesvector.size() * 2 * 4;
-            int recvedgecounts[size];
-            MPI_Gather( &numberofedges , 1 , MPI_INT , recvedgecounts , 1 , MPI_INT , current_process , MPI_COMM_WORLD);
+            int sendedgessize=0;// =  sendedgesvector.size() * 2 * 4;
+            for(auto &entry: edgesmap)
+            {
+                sendedgessize += (entry.second).size();
+            }
+            sendedgessize += edgesmap.size() * 2;
+            int recvedges_sizes[size];
+            MPI_Gather( &sendedgessize , 1 , MPI_INT , recvedges_sizes , 1 , MPI_INT , current_process , MPI_COMM_WORLD);
 
             int  recvdisplacements[size];         
-            char *recvdata_gather= new char[1];
+            int *recvdata_gather= new int[1];
             if(myrank == current_process)
             {
                 recvdisplacements[0] = 0;
                 for( int j = 1 ; j < size ; j++ )
                 {
-                    recvdisplacements[j] = recvdisplacements[j-1] + recvedgecounts[j-1];
+                    recvdisplacements[j] = recvdisplacements[j-1] + recvedges_sizes[j-1];
                 }
-                recvdata_gather = new char[recvdisplacements[size-1] + recvedgecounts[size-1] ];                
-                cout << "Process: " << myrank << " . number of edges: " << recvdisplacements[size-1] + recvedgecounts[size-1]<<endl;
+                recvdata_gather = new int[recvdisplacements[size-1] + recvedges_sizes[size-1] ];                
+                cout << "Process: " << myrank << " . number of edges: " << recvdisplacements[size-1] + recvedges_sizes[size-1]<<endl;
             }   
-            char *senddata = new char[1];
+            int *senddata = new int[1];            
             if(myrank != current_process)
             {    
-                senddata = new char[sendedgesvector.size() * 2 * 4];
-                memptr = senddata;
-                for( auto &pair : sendedgesvector)
+                senddata = new int[sendedgessize];
+                int index=0;
+                for(const auto &entry : edgesmap)
                 {
-                    int first = pair.first;
-                    int second = pair.second;
-                    memcpy(memptr , &first , sizeof(int));
-                    memptr+=sizeof(int);
-                    memcpy(memptr , &second , sizeof(int));
-                    memptr+=sizeof(int);
+                    senddata[index++] = entry.first;
+                    senddata[index++] = (entry.second).size();
+                    for(const auto &nodeindex : entry.second)
+                    {
+                        senddata[index++] = nodeindex;
+                    }
                 }
+                // for( auto &pair : sendedgesvector)
+                // {
+                //     int first = pair.first;
+                //     int second = pair.second;
+                //     memcpy(memptr , &first , sizeof(int));
+                //     memptr+=sizeof(int);
+                //     memcpy(memptr , &second , sizeof(int));
+                //     memptr+=sizeof(int);
+                // }
             }
-            MPI_Gatherv( senddata , sendedgesvector.size() * 2 * 4 , MPI_CHAR , recvdata_gather , recvedgecounts, recvdisplacements, MPI_CHAR , current_process ,  MPI_COMM_WORLD);
+            MPI_Gatherv( senddata , sendedgessize , MPI_INT , recvdata_gather , recvedges_sizes, recvdisplacements, MPI_INT , current_process ,  MPI_COMM_WORLD);
             delete[] senddata;
             delete[] recvdata_gather;
             sendedgesvector.clear();
             fl_recvvector.clear();
+            for(auto &entry: edgesmap) (entry.second).clear();
+            edgesmap.clear();
 
         }  
 
     }
 
-
+    if( myrank == size-1 )cout<<"Time taken for SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
 
 
     // auto it = localmap.begin();

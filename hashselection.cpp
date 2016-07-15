@@ -31,6 +31,7 @@ int main(int argc, char *argv[])
     int myrank = MPI::COMM_WORLD.Get_rank(); 
     int size = MPI::COMM_WORLD.Get_size(); 
 
+    clock_t fileprocessing_timestart = clock();
     process_files();
     
     if(myrank==0) cout<<" Time taken to process the files: "<< (clock()-fileprocessing_timestart)/(double) CLOCKS_PER_SEC<<"\n";
@@ -40,15 +41,15 @@ int main(int argc, char *argv[])
     if(myrank==0) cout << "Process: " << myrank << " Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
 
     
-    // for(auto &entry: localmap)
-    // {
-    //     auto &submap = entry.second;
-    //     for(auto it=submap.begin();it!=submap.end();)
-    //     {
-    //         if(it->second<5)it = submap.erase(it);
-    //         else it++;
-    //     }
-    // }    
+     for(auto &entry: localmap)
+     {
+         auto &submap = entry.second;
+         for(auto it=submap.begin();it!=submap.end();)
+         {
+             if(it->second<5)it = submap.erase(it);
+             else it++;
+         }
+     }    
     // for(auto it = localmap.begin();it!=localmap.end();)
     // {
     //     if((it->second).size()<5) it = localmap.erase(it);
