@@ -1,13 +1,21 @@
  #include "src/utility.hpp"
 #include "mpi.h"
+#include <unordered_set>
+using namespace std;
 void process_secondlevel(int &myrank , int &size){
     clock_t sltime = clock();
 
     auto it = localmap.begin();
     std::set<string> fl_wordset;
     int round =0;
+    
+    
+    
     while(1)
     {
+        int *recvdata_gather= new int[1];
+        std::unordered_map<int , std::unordered_set<int>> alledges;
+        int totalgathersize=0;
         if ( myrank == 0 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << endl;
         /////////////way to know if all can exit the loop; all have processed SL/////////
         int amidone = 0 , alldone = 0 ;
@@ -17,16 +25,24 @@ void process_secondlevel(int &myrank , int &size){
         /////////////way to know if all can exit the loop; all have processed SL/////////
 
         int nooftwords=0;
-        while( fl_wordset.size() < 100000 )
+        // while( fl_wordset.size() < 100000 )
+        // {
+            // if ( it == localmap.end() ) break;
+            // for( auto &entry : it->second ){
+            //     fl_wordset.insert( entry.first );
+            // }
+            // nooftwords++;
+            // it++;
+        // }
+        if ( it != localmap.end() ) 
         {
-            if ( it == localmap.end() ) break;
-            for( auto entry : it->second ){
+            for( auto &entry : it->second ){
                 fl_wordset.insert( entry.first );
             }
             nooftwords++;
             it++;
         }
-        cout << "Process: " << myrank << " No. of twords sending: " << nooftwords << endl;
+        cout << "Process: " << myrank << " No. of twords sending: " << nooftwords <<" Set size: "<<fl_wordset.size() << endl;
         vector<string> fl_vector(fl_wordset.size());
         vector<string> fl_recvvector;
         vector<std::pair<int,int>> sendedgesvector;
@@ -42,6 +58,7 @@ void process_secondlevel(int &myrank , int &size){
         for ( int current_process = 0 ; current_process < size ; current_process++ )
         {
             //if ( myrank == 0 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << ". Processing no.: " << current_process << ". Came1 "<<endl;
+            if(all_sendsizes[current_process]==0) continue;
             char *bcast_buffer = new char[ all_sendsizes[current_process] ];
             char *memptr = bcast_buffer;
             if( myrank == current_process )
@@ -110,7 +127,7 @@ void process_secondlevel(int &myrank , int &size){
             MPI_Gather( &sendedgessize , 1 , MPI_INT , recvedges_sizes , 1 , MPI_INT , current_process , MPI_COMM_WORLD);
 
             int  recvdisplacements[size];         
-            int *recvdata_gather= new int[1];
+            
             if(myrank == current_process)
             {
                 recvdisplacements[0] = 0;
@@ -118,7 +135,8 @@ void process_secondlevel(int &myrank , int &size){
                 {
                     recvdisplacements[j] = recvdisplacements[j-1] + recvedges_sizes[j-1];
                 }
-                recvdata_gather = new int[recvdisplacements[size-1] + recvedges_sizes[size-1] ];                
+                totalgathersize = recvdisplacements[size-1] + recvedges_sizes[size-1];
+                recvdata_gather = new int[ totalgathersize ];                
                 cout << "Process: " << myrank << " . number of edges: " << recvdisplacements[size-1] + recvedges_sizes[size-1]<<endl;
             }   
             int *senddata = new int[1];            
@@ -147,15 +165,34 @@ void process_secondlevel(int &myrank , int &size){
             }
             MPI_Gatherv( senddata , sendedgessize , MPI_INT , recvdata_gather , recvedges_sizes, recvdisplacements, MPI_INT , current_process ,  MPI_COMM_WORLD);
             delete[] senddata;
-            delete[] recvdata_gather;
+            
             sendedgesvector.clear();
             fl_recvvector.clear();
             for(auto &entry: edgesmap) (entry.second).clear();
             edgesmap.clear();
 
         }  
+        int *recvdata_gather_head = recvdata_gather;
+        while(recvdata_gather < recvdata_gather_head + totalgathersize)
+        {
+            int fromnode = *recvdata_gather;
+            recvdata_gather++;
+            int noofedges = *recvdata_gather;
+            recvdata_gather++;
+            while(noofedges--)
+            {
+                alledges[fromnode].insert(*recvdata_gather);
+                recvdata_gather++;
+            }
+        }
 
+        delete[] recvdata_gather_head;
+        for(auto &entry: alledges)
+            entry.second.clear();
+        alledges.clear();
     }
+    //cout << "Process: " << myrank << " Edges size: " << alledges.size() << endl;
+    
 
     if( myrank == size-1 )cout<<"Time taken for SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
 

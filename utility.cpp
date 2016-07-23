@@ -53,9 +53,9 @@
 
             if(localmap.find(itstr)==localmap.end())
             {
-                std::unordered_map<string,int> newmap;
-                for(j=0,iter = stringset.begin();iter != stringset.end();++iter)
-                {
+                 std::unordered_map<string,int> newmap;
+                 for(j=0,iter = stringset.begin();iter != stringset.end();++iter)
+                 {
                     string iterstr(*iter);
                     //add all other words in the sentence as cooccuring words except for the current word.
                     //current_index==j refers the word which we are dealing with now.
@@ -63,10 +63,10 @@
 
                     newmap[iterstr]=1;
                     j++;
-                }
+                 }
                 localmap[itstr]=newmap;
             }
-            //processes local map that has the string entry
+            // //processes local map that has the string entry
             else
             {        
                 
@@ -103,7 +103,7 @@
             
             std::set<string> uniquewords;
             int k=0;
-            while(index<length)
+             while(index<length)
             {
                 index = str.find('\n',index+1);
                 if(current_index+1 == index) continue;
@@ -113,7 +113,7 @@
                 boost::tokenizer<boost::char_separator<char>> tokens(line, sep);
                 int i=0; string two,three;
                 for (const auto& t : tokens) {
-                    if(i==2) {two.assign(t); }//if(isdigit(two.at(0)))break;}
+                    if(i==2) {two.assign(t); if(isdigit(two.at(0)))break;}//}
                     if(i==3)
                     {
                         if(t.compare("NN")==0 || t.compare("ADJ")==0)

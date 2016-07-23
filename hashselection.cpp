@@ -36,32 +36,44 @@ int main(int argc, char *argv[])
     
     if(myrank==0) cout<<" Time taken to process the files: "<< (clock()-fileprocessing_timestart)/(double) CLOCKS_PER_SEC<<"\n";
     
+    if(myrank==0) cout << "Process: " << myrank << " Before FL Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
+
     process_firstlevel(myrank, size);
     
-    if(myrank==0) cout << "Process: " << myrank << " Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
+    if(myrank==0) cout << "Process: " << myrank << " Before SL Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
 
     
-     for(auto &entry: localmap)
-     {
-         auto &submap = entry.second;
-         for(auto it=submap.begin();it!=submap.end();)
-         {
-             if(it->second<5)it = submap.erase(it);
-             else it++;
-         }
-     }    
+    //removing FL words which are co-occuring less than 5 times.
+    for(auto it = frequencymap.begin(); it!= frequencymap.end();)
+    {
+        if(it->second < 10){
+            if(localmap.find(it->first)!=localmap.end())localmap.erase(it->first);
+            it = frequencymap.erase(it);
+        } 
+        else it++;
+    }
+    // for(auto &entry: localmap)
+    // {
+    //     auto &submap = entry.second;
+    //     for(auto it=submap.begin();it!=submap.end();)
+    //     {
+    //         if(it->second<5)it = submap.erase(it);
+    //         else it++;
+    //     }
+    // }    
     // for(auto it = localmap.begin();it!=localmap.end();)
     // {
     //     if((it->second).size()<5) it = localmap.erase(it);
     //     else it++;
     // }
-    if(myrank==0) cout << "Process: " << myrank << " Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
-
+    
 
     process_secondlevel(myrank, size);
 
+    if(myrank==0) cout << "Process: " << myrank << " After SL Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
 
-    //if ( myrank == 0 ) cout << "Process: " << myrank << " writing to file started.." << "\n";
+
+    // //if ( myrank == 0 ) cout << "Process: " << myrank << " writing to file started.." << "\n";
           
     MPI::Finalize(); 
     return 0; 

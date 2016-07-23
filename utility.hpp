@@ -4,6 +4,7 @@
     #include <stdlib.h>
     #include <algorithm>
     #include <unordered_map>
+    #include <unordered_set>
     #include <boost/tokenizer.hpp>
     #include <set>
     #include <boost/filesystem.hpp>
