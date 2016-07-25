@@ -1,5 +1,6 @@
  #include "src/utility.hpp"
 #include "mpi.h"
+#include "graph.hpp"
 #include <unordered_set>
 using namespace std;
 void process_secondlevel(int &myrank , int &size){
@@ -9,14 +10,10 @@ void process_secondlevel(int &myrank , int &size){
     std::set<string> fl_wordset;
     int round =0;
     
-    
-    
     while(1)
     {
-        int *recvdata_gather= new int[1];
-        std::unordered_map<int , std::unordered_set<int>> alledges;
-        int totalgathersize=0;
         if ( myrank == 0 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << endl;
+
         /////////////way to know if all can exit the loop; all have processed SL/////////
         int amidone = 0 , alldone = 0 ;
         if(it == localmap.end()) amidone = 1;
@@ -24,391 +21,323 @@ void process_secondlevel(int &myrank , int &size){
         if( alldone == size ) break;
         /////////////way to know if all can exit the loop; all have processed SL/////////
 
-        int nooftwords=0;
-        // while( fl_wordset.size() < 100000 )
-        // {
-            // if ( it == localmap.end() ) break;
-            // for( auto &entry : it->second ){
-            //     fl_wordset.insert( entry.first );
-            // }
-            // nooftwords++;
-            // it++;
-        // }
-        if ( it != localmap.end() ) 
+        int noof_twords = 0;
+        int noof_flwords = 0;
+        std::map < string , vector<string> > tword_flwords_map;
+        std::unordered_map<string, int> fl_frequency_map;
+        while( noof_flwords < 100000 )
         {
+            if ( it == localmap.end() ) break;
+            auto &v = tword_flwords_map[it->first];
             for( auto &entry : it->second ){
-                fl_wordset.insert( entry.first );
+                v.push_back(entry.first);
             }
-            nooftwords++;
+            noof_flwords += (it->second).size();
+            noof_twords++;
             it++;
         }
-        cout << "Process: " << myrank << " No. of twords sending: " << nooftwords <<" Set size: "<<fl_wordset.size() << endl;
-        vector<string> fl_vector(fl_wordset.size());
-        vector<string> fl_recvvector;
-        vector<std::pair<int,int>> sendedgesvector;
-        std::unordered_map<int, vector<int>> edgesmap;
-        std::set<string> fl_recv_wordset;
-        std::unordered_map<string, int> fl_recv_map;
-        int sendsize = fl_wordset.size() * STRING_LENGTH;
-        int all_sendsizes[size];
+        //if(myrank == 0){cout<<"sizes"<<endl;for(auto &entry:tword_flwords_map) cout << entry.second.size()<< ".";cout<<endl;}
+        MPI::COMM_WORLD.Barrier();
+        int sendsize = 4 * noof_twords + STRING_LENGTH * noof_flwords;
+
+        char *flwords_sendbuffer = new char[sendsize];
+        int tempsize = 0 , sizeofint = sizeof(int);
+        char *memptr = flwords_sendbuffer;
+        for( auto &entry : tword_flwords_map)
+        {
+            tempsize = (entry.second).size();
+            memcpy(memptr, &tempsize , sizeofint);
+            memptr += sizeofint; 
+            //if(myrank == 0) cout << "Process: 0 no of flwords" << entry.second.size() << endl;
+            for( auto &flword : entry.second)
+            {
+                memcpy( memptr , flword.c_str() , flword.size()+1);
+                memptr += STRING_LENGTH;
+            }
+        }
+        int all_sendsizes[size], all_noof_twords[size];
 
         MPI_Allgather(&sendsize , 1 , MPI_INT , all_sendsizes , 1 , MPI_INT , MPI_COMM_WORLD);
-        //if (myrank == 0) cout << "Process: " << myrank << ""
-        //Everyone will broadcast their set of Firstlevel words
-        for ( int current_process = 0 ; current_process < size ; current_process++ )
+        MPI_Allgather(&noof_twords , 1 , MPI_INT , all_noof_twords , 1 , MPI_INT , MPI_COMM_WORLD);
+        
+        int *recv_edgedata_gather = nullptr;
+        char *recv_frequency_gather = nullptr;
+
+        int freqencysizegather=0;
+        for(int current_process = 0 ; current_process < size ; current_process++)
         {
-            //if ( myrank == 0 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << ". Processing no.: " << current_process << ". Came1 "<<endl;
-            if(all_sendsizes[current_process]==0) continue;
-            char *bcast_buffer = new char[ all_sendsizes[current_process] ];
-            char *memptr = bcast_buffer;
-            if( myrank == current_process )
+            char *flwords_recvbuffer = new char[1];
+            if(all_sendsizes[current_process] == 0) continue;
+            if(myrank != current_process)
             {
-                for(auto &str : fl_wordset)
-                {
-                    fl_vector.push_back( str );
-                    memcpy( memptr , str.c_str() , str.size() + 1);
-                    memptr += STRING_LENGTH;        
-                }    
-                fl_wordset.clear();
-            }            
-            
-            //if ( myrank == 0 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << ". Processing no.: " << current_process << ". Came2 "<<endl;
-            MPI_Bcast(bcast_buffer , all_sendsizes[current_process] , MPI_CHAR , current_process , MPI_COMM_WORLD);
-            
-            if ( myrank != current_process )
+                flwords_recvbuffer = new char[all_sendsizes[current_process]];
+            }
+            else
             {
-                fl_recvvector.resize( all_sendsizes[current_process]/STRING_LENGTH );
-                int index=0;
-                while(memptr < bcast_buffer + all_sendsizes[current_process] )
+                flwords_recvbuffer = flwords_sendbuffer;
+            }
+            //cout << all_sendsizes[current_process] << " " ;
+            MPI::COMM_WORLD.Barrier();
+            MPI_Bcast(flwords_recvbuffer , all_sendsizes[current_process] , MPI_CHAR , current_process , MPI_COMM_WORLD);
+            //if(myrank == current_process) delete [] flwords_recvbuffer;
+            int edgessize = 0;
+            vector<std::map<int, std::vector<int>>> tosend_edges(all_noof_twords[current_process]);
+            int *edgedata= nullptr;
+            std::unordered_map<string, int> fmap;
+            //if(myrank != current_process)
+            //{
+                std::vector<std::vector<string>> vecofvecs(all_noof_twords[current_process]);
+                memptr = flwords_recvbuffer;
+                for(int tword_index = 0 ; tword_index < all_noof_twords[current_process] ; tword_index++)
                 {
-                    char fl_word[STRING_LENGTH];
-                    memcpy( fl_word , memptr , STRING_LENGTH);
-                    //fl_recvvector.push_back(fl_word);
-                    //fl_recv_wordset.insert(fl_word);
-                    fl_recv_map[fl_word] = index++;
-                    memptr += STRING_LENGTH;
-                }
-                if(myrank ==0) cout << "Process: " << myrank << " . number of flwords received: " << fl_recvvector.size() << endl;
-                //if ( myrank == 10 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << ". Processing no.: " << current_process << ". Came3 "<<endl;
-                int current_index = 0 , word_index = 0;
-                //for( current_index = 0 ; current_index < fl_recvvector.size() ; current_index++ )
-                //while( current_index < fl_recv_wordset.size() )
-                clock_t startsearchtime = clock();
-                for(auto &fl_entry : fl_recv_map)                    
-                {
-                    string current_string(fl_entry.first);
-                    //string current_string = fl_recvvector[current_index];
-                    //string current_string = fl_recv_wordset[current_index];
-                    if ( (std::hash<string>()(current_string)) % size  == myrank )
+                    int count=0;
+                    memcpy(&count ,memptr , sizeof(int));
+                    //if(myrank==0 && current_process==0)cout << count << ";";
+                    memptr += sizeofint;
+                    for( int fl_index = 0 ; fl_index < count ; ++fl_index)
                     {
-                        //if(myrank ==10) cout << "Process: " << myrank << " . came into hash " << endl;
-                        for( auto &entry : localmap[current_string])
-                        {                           
-                            
-                            if(fl_recv_map.find(entry.first) != fl_recv_map.end())
-                                edgesmap[fl_entry.second].push_back(fl_recv_map[entry.first]);//std::distance(fl_recv_wordset.begin(), it) );
-                                //sendedgesvector.push_back(std::make_pair(current_index,  std::distance(fl_recv_wordset.begin(), it) ));
-                                
-                        }
+                        char flword[STRING_LENGTH];
+                        memcpy(flword, memptr, STRING_LENGTH);
+                        memptr += STRING_LENGTH;
+                        vecofvecs[tword_index].push_back(string(flword));
                     }
                 }
-                fl_recv_map.clear();
-                if( myrank == size-1 )cout<<"Time taken for search edges " << (clock()-startsearchtime)/(double) CLOCKS_PER_SEC << "\n";        
-            }
-            //if ( myrank == 0 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << ". Processing no.: " << current_process << ". Came4 "<<endl;
-            fl_recvvector.clear();
-            int sendedgessize=0;// =  sendedgesvector.size() * 2 * 4;
-            for(auto &entry: edgesmap)
-            {
-                sendedgessize += (entry.second).size();
-            }
-            sendedgessize += edgesmap.size() * 2;
-            int recvedges_sizes[size];
-            MPI_Gather( &sendedgessize , 1 , MPI_INT , recvedges_sizes , 1 , MPI_INT , current_process , MPI_COMM_WORLD);
+                // cout<<endl;
+                // MPI::COMM_WORLD.Barrier();
+                // if(myrank==0 && current_process == 0){
+                //     cout << "sizes" <<endl;
+                // for(auto &entry : vecofvecs)
+                //     cout << entry.size() << ".";
+                // cout <<endl;
+                // }
+                // MPI::COMM_WORLD.Barrier();
 
-            int  recvdisplacements[size];         
+                //if(myrank == 1 && current_process == 0) cout << "Process: 1 first tword flwords no is: " << vecofvecs[0].size() << " " <<vecofvecs[0][0] << endl;
+                //f(myrank == 3 && current_process == 0) cout << "Process: 3 first tword flwords no is: " << vecofvecs[0].size() <<" "<< vecofvecs[0][0] << endl;
+                int index = 0;
+                
+                for(auto &vecentry : vecofvecs)
+                {
+                    auto &currentmap = tosend_edges[index++];
+                    int fromstr = 0;
+                    for(auto &flword : vecentry)
+                    {
+                        if(std::hash<string>()(flword) % size == myrank && localmap.find(flword) != localmap.end())
+                        {
+                            fl_frequency_map[flword] = frequencymap[flword];
+                            int tostr = 0;
+                            auto &submap = localmap[flword];
+                            for(auto &flword_second : vecentry)
+                            {
+                                if(submap.find(flword_second) != submap.end())
+                                {
+                                    currentmap[fromstr].push_back(tostr); 
+                                    currentmap[fromstr].push_back(submap[flword_second]);//cooccurance count
+                                }
+                                tostr++;
+                            }
+                        }
+                        fromstr++;
+                    }
+                }
+                for(int j=0; j< vecofvecs.size(); j++)
+                {
+                    //if(tosend_edges[j].size() > vecofvecs[j].size())cout <<" Dude super death 99" << endl;
+                }
+
+                edgessize += tosend_edges.size();
+                for(auto &entrymap : tosend_edges)
+                {   
+                    edgessize += entrymap.size() * 2;
+                    for(auto &edgeentry: entrymap)
+                        edgessize += edgeentry.second.size();
+                }
+
+                edgedata = new int[edgessize];
+                int edgedataindex=0;
+                int k=0;
+                for(auto &entrymap : tosend_edges)
+                {   
+                    auto &v = vecofvecs[k++];
+                    //if(entrymap.size() > v.size()) cout <<"Came1"<<endl;
+
+
+                    edgedata[edgedataindex++] = entrymap.size();
+                    for(auto &edgeentry: entrymap)
+                    {
+                        //if(edgeentry.first > v.size()) cout << "Came2" <<endl;
+                        edgedata[edgedataindex++] = edgeentry.first;
+                        edgedata[edgedataindex++] = (edgeentry.second).size();
+                        for(auto &edge : edgeentry.second)
+                            edgedata[edgedataindex++] = edge;    
+                    }
+                    
+                }   
+                //cout << "Process: " << myrank <<" loop: "<< current_process << " Edge sizes: "<< edgessize <<endl;    
+                if(myrank == 0 && current_process ==0){
+                    //cout<<vecofvecs[0][0] << vecofvecs[1][0]<<endl;
+                    // for(int i=0 ; i< edgessize ;i++){
+                    //     cout << edgedata[i] <<" ";
+                    // }
+                }   
+            //}
+
+            int recv_frequency_sizes[size];
+
+            int fdata_size = (STRING_LENGTH + sizeof(int)) * fmap.size(); 
+            MPI_Gather( &fdata_size , 1 , MPI_INT , recv_frequency_sizes , 1 , MPI_INT , current_process , MPI_COMM_WORLD);
+            char *tosendfrequency_data = new char[fdata_size];
+            memptr = tosendfrequency_data;
+            for(auto &fentry : fmap)
+            {
+                memcpy(memptr, fentry.first.c_str(), fentry.first.size()+1);
+                memptr += STRING_LENGTH;
+                int freqency = fentry.second;
+                memcpy(memptr, &freqency, sizeof(int));
+                memptr += sizeof(int);
+            }
+
+            int  recvdisplacements[size];
             
             if(myrank == current_process)
             {
                 recvdisplacements[0] = 0;
                 for( int j = 1 ; j < size ; j++ )
                 {
-                    recvdisplacements[j] = recvdisplacements[j-1] + recvedges_sizes[j-1];
+                    recvdisplacements[j] = recvdisplacements[j-1] + recv_frequency_sizes[j-1];
                 }
-                totalgathersize = recvdisplacements[size-1] + recvedges_sizes[size-1];
-                recvdata_gather = new int[ totalgathersize ];                
-                cout << "Process: " << myrank << " . number of edges: " << recvdisplacements[size-1] + recvedges_sizes[size-1]<<endl;
+                freqencysizegather = recvdisplacements[size-1] + recv_frequency_sizes[size-1];
+                recv_frequency_gather = new char[ freqencysizegather ];                
             }   
-            int *senddata = new int[1];            
-            if(myrank != current_process)
-            {    
-                senddata = new int[sendedgessize];
-                int index=0;
-                for(const auto &entry : edgesmap)
+            MPI_Gatherv( tosendfrequency_data , fdata_size , MPI_CHAR , recv_frequency_gather , recv_frequency_sizes, recvdisplacements, MPI_CHAR , current_process ,  MPI_COMM_WORLD);
+
+            int recv_edge_sizes[size];
+            MPI_Gather( &edgessize , 1 , MPI_INT , recv_edge_sizes , 1 , MPI_INT , current_process , MPI_COMM_WORLD);
+                     
+            
+            int totalgathersize;
+            if(myrank == current_process)
+            {
+                recvdisplacements[0] = 0;
+                for( int j = 1 ; j < size ; j++ )
                 {
-                    senddata[index++] = entry.first;
-                    senddata[index++] = (entry.second).size();
-                    for(const auto &nodeindex : entry.second)
+                    recvdisplacements[j] = recvdisplacements[j-1] + recv_edge_sizes[j-1];
+                }
+                totalgathersize = recvdisplacements[size-1] + recv_edge_sizes[size-1];
+                recv_edgedata_gather = new int[ totalgathersize ];                
+                // if(myrank==0) {e = recv_edge_sizes[0];
+                // cout << e<<endl;;}
+                for(int i=0; i<size; i++)
+                {
+                    //cout << "Process: " << myrank << " edgesize from process: " << i << " is:" <<recv_edge_sizes[i]<<endl;
+                }
+            }   
+            MPI_Gatherv( edgedata , edgessize , MPI_INT , recv_edgedata_gather , recv_edge_sizes, recvdisplacements, MPI_INT , current_process ,  MPI_COMM_WORLD);
+            
+
+
+            delete [] edgedata;
+            
+
+            // if(myrank != current_process)
+            // {
+            //     delete [] flwords_recvbuffer;   
+            // }
+        }//End for loop
+
+        int dataindex = 0;
+        char *freqmemptr = recv_frequency_gather;
+        freqencysizegather /= STRING_LENGTH + sizeof(int);
+        while(freqencysizegather--)
+        {
+            char flword[STRING_LENGTH];
+            memcpy(flword, freqmemptr, STRING_LENGTH);
+            freqmemptr += STRING_LENGTH;
+            int frequency;
+            memcpy(&frequency, freqmemptr, sizeof(int));
+            freqmemptr += sizeof(int);
+            fl_frequency_map[flword] = frequency;
+        }
+        // if(myrank ==0){
+        // for(int i=0;i< 120379;i++)
+        // {
+        //     cout << recv_edgedata_gather[i] <<" ";
+        // }}
+        map<string,  map<int, std::vector<int> >> mapedgelists;
+        if(myrank ==0)
+        for(int l = 0; l < 1 ; l++)
+        {
+            int index = 0;
+            for(auto &twordentry: tword_flwords_map)                
+            {     
+                //cout << twordentry.first<<" ";           
+
+                int noofedgelists = recv_edgedata_gather[dataindex++];
+                //if(noofedgelists > twordentry.second.size()) cout <<"Came3"<<endl;
+                auto & edgelists = mapedgelists[twordentry.first];
+                for(int i = 0 ; i < noofedgelists ; i++)
+                {
+                    int fromstr = recv_edgedata_gather[dataindex++];
+                    int edgescount = recv_edgedata_gather[dataindex++];
+                    for(int j = 0 ; j < edgescount ; j++)
                     {
-                        senddata[index++] = nodeindex;
+                        int edge = recv_edgedata_gather[dataindex++];
+                        edgelists[fromstr].push_back(edge);
+                        // int ccount = recv_edgedata_gather[dataindex++];
+                        // edgelists[fromstr].push_back(ccount);
                     }
                 }
-                // for( auto &pair : sendedgesvector)
-                // {
-                //     int first = pair.first;
-                //     int second = pair.second;
-                //     memcpy(memptr , &first , sizeof(int));
-                //     memptr+=sizeof(int);
-                //     memcpy(memptr , &second , sizeof(int));
-                //     memptr+=sizeof(int);
-                // }
-            }
-            MPI_Gatherv( senddata , sendedgessize , MPI_INT , recvdata_gather , recvedges_sizes, recvdisplacements, MPI_INT , current_process ,  MPI_COMM_WORLD);
-            delete[] senddata;
-            
-            sendedgesvector.clear();
-            fl_recvvector.clear();
-            for(auto &entry: edgesmap) (entry.second).clear();
-            edgesmap.clear();
-
-        }  
-        int *recvdata_gather_head = recvdata_gather;
-        while(recvdata_gather < recvdata_gather_head + totalgathersize)
-        {
-            int fromnode = *recvdata_gather;
-            recvdata_gather++;
-            int noofedges = *recvdata_gather;
-            recvdata_gather++;
-            while(noofedges--)
-            {
-                alledges[fromnode].insert(*recvdata_gather);
-                recvdata_gather++;
             }
         }
+        // int l=0;;
+        // //if(myrank ==0){auto it = tword_flwords_map.begin();auto v = it -> second; cout << v[0]<<endl;}
+        // for(auto &twordentry: tword_flwords_map)
+        // {
 
-        delete[] recvdata_gather_head;
-        for(auto &entry: alledges)
+        //     if(mapedgelists[twordentry.first].size() > twordentry.second.size())
+        //     {
+        //         cout <<" Dude super dead " << mapedgelists[twordentry.first].size() <<"  "<< twordentry.second.size() << endl;
+        //         for(auto &entry : mapedgelists[twordentry.first])
+        //         {
+        //             string str="";
+        //             for(auto ventry : entry.second) {str += to_string(ventry) + " ";}
+        //             cout << entry.first <<" :: " << str<<endl;
+        //         }
+        //     }
+        // }
+        int index = 0;
+        for(auto &twordentry: tword_flwords_map)
+        {                
+            auto &tword = twordentry.first;
+            auto &flwords = twordentry.second;
+            //cout << "Creaing graph for tword: " << tword <<endl;
+            Graph g(tword);
+            g.create_graphwithedgelists(flwords , mapedgelists[tword] , fl_frequency_map);
+            std::map<string,std::vector<string>> roothubs; int dog, non, noe;
+            g.get_roothubs(roothubs, dog, non, noe);
+            for(auto &entry: roothubs)
+            {
+                cout << entry.first<< " :: ";
+                for(auto &root: entry.second)
+                    cout << root << " ";
+                cout <<endl;
+            }
+            // if(flwords.size() != mapedgelists[tword].size()) 
+            //     cout << "Difference: " << flwords.size() << " - " << mapedgelists[tword].size() << " = " <<flwords.size() - mapedgelists[tword].size()<<endl;
+        }
+        fl_frequency_map.clear();
+        delete[] recv_frequency_gather;
+        delete[] recv_edgedata_gather;
+        for(auto &entry : tword_flwords_map)
+        {
             entry.second.clear();
-        alledges.clear();
-    }
-    //cout << "Process: " << myrank << " Edges size: " << alledges.size() << endl;
-    
-
-    if( myrank == size-1 )cout<<"Time taken for SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
+        }
+        tword_flwords_map.clear();
+    }//End while loop       
 
 
-    // auto it = localmap.begin();
-    // //auto it = mystringset.begin();
-    // int l=0;
-    // int itcount=-1 * NUMWORDS;
-    // while( 1 )
-    // {
-    //     itcount+=NUMWORDS;
-    //     l++;
-    //     if(myrank == 0) cout << "Process: " << myrank << " itcount: " << itcount <<". Distance: "<< std::distance(localmap.begin(), it) <<endl;
-    //     clock_t roundtime = clock();
-    //     int sendwords_sl = 1;
-    //     if ( it == localmap.end() ) sendwords_sl = 0;
-    //     //if ( it == mystringset.end() ) sendwords_sl = 0;
-    //     int allsendwords_sl[ size ], allsendwordssum;
-    //     MPI_Allgather( &sendwords_sl , 1 , MPI_INT , allsendwords_sl , 1 , MPI_INT , MPI_COMM_WORLD);
-    //     MPI_Allreduce(&sendwords_sl,    &allsendwordssum,    1,    MPI_INT,    MPI_SUM,    MPI_COMM_WORLD);
-    //     if ( allsendwordssum == 0 ) break;
-        
-    //     std::set<string> fl_words;
-    //     std::vector<string> target_words;
-    //     int loopcounter =0;
-    //     while( fl_words.size() < 5000 )
-    //     {
-    //         if ( it == localmap.end() ) break;
-    //         //if ( it == mystringset.end() ) break;
-    //         target_words.push_back(it -> first);
-    //         //target_words.push_back(*it);
-    //         for( auto entry : it->second ){
-    //             fl_words.insert( entry.first );
-    //         }
-    //         loopcounter++;
-    //         it++;
-    //     }
-    //     cout << "Process: "<< myrank << ". FL Words Count: " << fl_words.size() << "of target_words count: " << loopcounter << endl;
-    // }
-//         vector< vector< string > > vecgrouped_sl( size , vector< string >(0));
-//         for(auto entry: fl_words){
-//             vecgrouped_sl[std::hash<string>()(entry)%size].push_back(entry);    
-//         }
-//         // if(myrank == 0){
-//         // cout << "Process: " << myrank << " : " << vecgrouped_sl[0].size()  << " : " << vecgrouped_sl[1].size() <<endl;
-//         // for(auto &entry : vecgrouped_sl[0])
-//         //     cout << entry << " : ";
-//         // cout << "-- " <<endl;
-//         // }
-//         int recvsize=0;
-//         char *recvdata_scatter=new char[1];
-//         char *recvdata_gather=new char[1];
-//         char *senddata=new char[1];
-//         vecgrouped_sl[myrank].clear();
-//         for( int i = 0 ; i < size ; i++ )
-//         {
-//             //if( allsendwords_sl[i] == 0 ) continue;
-            
-//             int sendcounts[size] ={} , senddisplacements[size]={} ,recvcounts[size]={} , recvdisplacements[size]={} ;
-//             int sendcount =0 ,  recvcount=0 , totalsendsize=0;
-// /*////////////////////////SCATTERING///////////////////////////*/
-//             if( myrank == i )
-//             {
-//                 sendcounts[0] = vecgrouped_sl[0].size() * STRING_LENGTH;
-//                 senddisplacements[0] = 0;
-//                 for( int j = 1 ; j < size ; j++ )
-//                 {
-//                     sendcounts[j] = vecgrouped_sl[j].size() * STRING_LENGTH;
-//                     senddisplacements[j] = senddisplacements[j-1] + sendcounts[j-1];                    
-//                 }
-//                 totalsendsize = senddisplacements[size-1] + sendcounts[size-1];
-//                 //cout <<"Process: " << myrank << ". Totalsendsize:"<<totalsendsize<<endl;
-//                 senddata = new char[ totalsendsize  ];
-//                 char *memptr = senddata;
-//                 for( auto &v_entry : vecgrouped_sl)
-//                 {
-//                     for( auto str : v_entry )
-//                     {
-//                         memcpy( memptr , str.c_str() , str.size() + 1);
-//                         memptr += STRING_LENGTH;        
-//                     }
-//                 }
-//             }
-//             //if(myrank == i) cout << "Process: " << myrank << " :totalsendsize: " << totalsendsize <<endl;
-//             MPI_Scatter( sendcounts , 1 , MPI_INT , &recvcount , 1 , MPI_INT , i , MPI_COMM_WORLD );   
-//             recvdata_scatter = new char[ recvcount ];
-            
-//             MPI_Scatterv( senddata , sendcounts , senddisplacements , MPI_CHAR , recvdata_scatter , recvcount , MPI_CHAR , i , MPI_COMM_WORLD );
+    if( myrank == size-1 )cout<<endl<<"Time taken for SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
 
-// /*////////////////////////SCATTERING///////////////////////////*/
-// /*////////////////////////GATHERING///////////////////////////*/
-//             int tosendwordcount=0;
-//             if ( myrank == i ) delete[] senddata;
-//             char *memptr = recvdata_scatter;
-//             int sendwords_sl;
-//             std::vector<string> fl_words;
-//             for ( int j = 0 ; j < recvcount / STRING_LENGTH ; j++ )
-//             {
-//                 char fl_word[STRING_LENGTH];
-//                 memcpy( fl_word , recvdata_scatter , STRING_LENGTH);
-//                 recvdata_scatter += STRING_LENGTH;
-//                 fl_words.push_back(fl_word);
-//             }
-
-//             delete [] memptr;
-//             int sendsize = 0;
-            
-//             for( auto entry : fl_words)
-//             {
-//                 if(localmap.find(entry)!=localmap.end()){
-//                     tosendwordcount++;
-//                     sendsize += localmap[entry].size();
-//                 }
-//             }
-//             //sendcount = (sendsize + fl_words.size()) * (STRING_LENGTH + sizeofint) + (fl_words.size() * sizeofint);
-//             sendcount = (sendsize + tosendwordcount) * (STRING_LENGTH + sizeofint) + (tosendwordcount * sizeofint);
-//             senddata = new char [ sendcount ];
-//             memptr = senddata;
-//             for( auto entry : fl_words)
-//             {
-//                 if(localmap.find(entry) == localmap.end()) continue;
-//                 memcpy( memptr , entry.c_str() , entry.size() + 1);
-//                 memptr += STRING_LENGTH;
-                
-//                 int N = frequencymap[entry];        
-//                 memcpy( memptr , &N , sizeof(int) );
-//                 memptr += sizeofint;
-
-//                 N = localmap[entry].size();
-//                 memcpy( memptr , &N , sizeof(int) );
-//                 memptr += sizeofint;
-                
-//                  for( auto &slword_entry : localmap[entry] )
-//                  {
-//                     memcpy( memptr , slword_entry.first.c_str() , slword_entry.first.size() + 1);            
-//                     memptr += STRING_LENGTH;    
-
-//                     const int N = slword_entry.second;
-//                     memcpy( memptr , &N , sizeofint );
-//                     memptr += sizeofint;    
-//                  }
-//             }
-//              MPI_Reduce(&tosendwordcount ,    &recvtwords_count,    1,    MPI_INT,    MPI_SUM,  i,    MPI_COMM_WORLD);                
-//              MPI_Gather( &sendcount , 1 , MPI_INT , recvcounts , 1 , MPI_INT , i , MPI_COMM_WORLD);
-                        
-//             if(myrank == i)
-//             {
-//                 recvdisplacements[0] = 0;
-//                 for( int j = 1 ; j < size ; j++ )
-//                 {
-//                     recvdisplacements[j] = recvdisplacements[j-1] + recvcounts[j-1];
-//                 }
-//                 recvsize = recvdisplacements[size-1] + recvcounts[size-1];
-//                 recvdata_gather = new char [ recvsize ];
-//             }   
-                
-//             MPI_Gatherv( senddata , sendcount , MPI_CHAR , recvdata_gather , recvcounts, recvdisplacements, MPI_CHAR , i ,  MPI_COMM_WORLD);
-//             delete [] senddata;
-// /*////////////////////////GATHERING///////////////////////////*/    
-//     if(myrank==0 && myrank ==i) cout<<" Time taken for hashing SL words round "<<l<<": "<< (clock()-hashingtime)/(double) CLOCKS_PER_SEC<<". Recv size: "<<recvsize<< "\n";        
-//         }
-//         char *recvdata_head = recvdata_gather;
-// /*///////////////////////Each process processes the words and adds into its localmap//////////*/     
-//             //cout << "Process: " << myrank << "checking before " << localsecondlevelmap.size() <<endl;
-//         for ( int i = 0 ; i < recvtwords_count -1  ; i++)
-//         {
-//             // char tword[STRING_LENGTH];
-//             // memcpy( tword , recvdata_gather , STRING_LENGTH);
-//             // recvdata_gather += STRING_LENGTH;
-//             // int frequency;
-//             // memcpy( &frequency , recvdata_gather , sizeof(int) );
-//             // recvdata_gather += sizeofint; 
-
-//             // frequencymap[tword] += frequency;       
-
-//             // int cwords_size;
-//             // memcpy( &cwords_size , recvdata_gather , sizeof(int) );
-//             // recvdata_gather += sizeofint;
-            
-//             // auto &submap = localsecondlevelmap[tword];
-
-//             // for( int i=0 ; i < cwords_size ; i++ )
-//             // {
-//             //     char cword[STRING_LENGTH];
-//             //     memcpy( cword , recvdata_gather , STRING_LENGTH);            
-//             //     recvdata_gather += STRING_LENGTH;
-                
-//             //     int ccount;
-//             //     memcpy( &ccount , recvdata_gather , sizeofint );
-//             //     recvdata_gather += sizeofint;
-                
-//             //     submap[cword] += ccount;                
-//             // }
-//             //if(recvdata_gather < recvdata_head + recvsize) break;
-//         }
-//             //cout << "Process: " << myrank << "checking after " << localsecondlevelmap.size() << ". recvtwordscount is: " << recvtwords_count << endl;
-//         delete [] recvdata_head;
-// /*///////////////////////Each process processes the words and adds into its localmap//////////*/        
-//         for( auto &v: vecgrouped_sl)
-//             v.clear();
-//         fl_words.clear();
-//         //cout << "Process: " << myrank << " itcount Memory occupied: " << mapsize(localmap) + mapsize(localsecondlevelmap) << ". localsecondlevelmap size: "<<localsecondlevelmap.size()<< endl;
-//         // for(auto tword : target_words)
-//         // {
-//         //     auto submap = localmap[tword];
-//         //     localsecondlevelmap[tword] = submap;
-//         //     Graph *graph = new Graph(tword);
-//         //     graph -> create_graph(localsecondlevelmap, frequencymap);
-//         //     delete graph;
-
-//         // }
-//         for(auto &entry : localsecondlevelmap)        
-//             entry.second.clear();
-//         localsecondlevelmap.clear();
-            
-//     }
 
 
     MPI::COMM_WORLD.Barrier();

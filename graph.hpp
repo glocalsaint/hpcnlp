@@ -5,6 +5,7 @@
 #include <memory>
 #include <list>
 #include <map>
+#include <set>
 #include <ctime>
 #include<iostream>
 using namespace std;
@@ -119,7 +120,7 @@ struct node_comparator
                     if(i==6)break;
                 }    
                 roothubs[node->str]=roothubedges;
-                roothubedges.clear();
+                //roothubedges.clear();
             }
         }
         
@@ -182,6 +183,54 @@ struct node_comparator
         target_word=t_word;
 
     }
+
+    void create_graphwithedgelists(vector<string> &flwords, map<int, std::vector<int>> &edgelists, unordered_map<string, int> &fl_frequencymap)
+    {
+        clock_t begin = clock();
+        //cout << "Creating graph for the word: " << target_word << endl;
+        //auto &submap=localmap[target_word];
+        int degree_of_node=0;
+        //creating nodes for the first level nodes
+        for(auto &entry: flwords)
+        {
+            node *node_ptr=new node();
+            //string entrystr(entry.first);
+            node_ptr->str=entry;
+            node_ptr->frequency=fl_frequencymap[entry];
+            stringtonode_map[entry]=node_ptr;
+            nodelist.insert_node(node_ptr);
+            no_of_nodes++;
+        }
+        if(edgelists.size() > flwords.size()) cout << "Dumbledore" <<endl;
+        for(auto &entry : edgelists)
+        {
+            if(entry.first > flwords.size()) cout << "Process: " <<  " Edge with higher index " << entry.first <<" flwords size: " << flwords.size()<<endl;
+             string fromstr = flwords[entry.first];
+            node *first_node = stringtonode_map[fromstr];
+            auto &edgelist = entry.second;
+            for(int i =0 ; i < entry.second.size() ; i=i+2)
+            {
+                int to = edgelist[i];
+                int cooccurance_count = edgelist[i+1];
+                string tostr = flwords[to];
+                node *second_node = stringtonode_map[tostr];
+                //max of cooccurance count divided by frequency of the two.
+                double weight= 1-std::max((double)cooccurance_count/first_node->frequency , (double)cooccurance_count/second_node->frequency);
+                first_node->insert_edge(second_node, weight);
+                // no_of_edges++;
+             //   degree_of_node++;
+            }
+            //degree_of_graph=std::max(degree_of_graph,degree_of_node);
+            
+            
+            clock_t insertstart = clock();
+            
+        }
+
+        //nodelist.print();
+        //going through all second level nodes and if there is string which is in first level node then form an edge.
+        clock_t firstend = clock();
+    }
     void create_graph(std::unordered_map<string, std::unordered_map<string,int>> &localmap, std::unordered_map<string,int> &frequency_map)
     {
         clock_t begin = clock();
@@ -198,6 +247,8 @@ struct node_comparator
             nodelist.insert_node(node_ptr);
             no_of_nodes++;
         }
+
+
 
         //nodelist.print();
         //going through all second level nodes and if there is string which is in first level node then form an edge.
