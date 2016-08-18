@@ -71,6 +71,8 @@ void process_firstlevel(int &myrank , int &size){
         int *allocsizes= new int[size];
         MPI_Gather(&allocsize,  1,  MPI_INT,  allocsizes,  1,  MPI_INT,  i,  MPI_COMM_WORLD);
         
+
+        
         int *allocdisplacements = new int[size];
         allocdisplacements[0] = 0;
         for( int i=0 ; i < size ; i++ )

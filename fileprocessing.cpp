@@ -2,8 +2,8 @@
 #include "mpi.h"
 void process_files()
 {
-    std::vector<string> files=getallfilenames("/work/scratch/vv52zasu/inputfiles/");
-    //std::vector<string> files=getallfilenames("/home/vv52zasu/mpi/inputfiles/");
+    //std::vector<string> files=getallfilenames("/work/scratch/vv52zasu/inputfiles/");
+    std::vector<string> files=getallfilenames("/home/vv52zasu/mpi/inputfiles/");
     MPI::Status status; 
     int myrank = MPI::COMM_WORLD.Get_rank();
     int size = MPI::COMM_WORLD.Get_size();
@@ -78,7 +78,7 @@ void process_files()
         if( finalcount >= CHUNKSIZE+300000) cout << "Process: " << myrank <<  " DUDE wtf"<<endl;
         string finalstr(bufchar, finalcount );
         // //cout << recvcount << endl;
-         delete[] recvptr;
+        delete[] recvptr;
         // //cout << finalstr<<endl;
         process_string(finalstr, localmap, frequencymap);
         delete[] (bufchar_header);

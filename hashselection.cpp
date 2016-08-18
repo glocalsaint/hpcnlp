@@ -49,25 +49,79 @@ int main(int argc, char *argv[])
     //     } 
     //     else it++;
     // }
+
     
-    if(myrank==0) cout << "Process: " << myrank << " Before SL Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
-    
+    //words cooccuring less than 5 times were eliminated
+    for(auto &entry: localmap)
+    {
+        auto &submap = entry.second;
+        for(auto it=submap.begin();it!=submap.end();)
+        {
+            if(it->second<5)it = submap.erase(it);
+            else it++;
+        }
+    }    
+    //Words with less than 10 frequency in the entire subcorpus were also discarded. 
+    for(auto it = frequencymap.begin();it!=frequencymap.end();)
+    {
+        if((it->second) < 10)
+        {
+            localmap.erase(it->first); 
+            it = frequencymap.erase(it); 
+        }
+        else it++;
+    }
+
+    // typedef struct{string flword; int cooccurance;} fl;
+    // std::unordered_map<string, fl*> localmapstruct;
+    // std::unordered_map<string, int> localmapsizes;
     // for(auto &entry: localmap)
     // {
     //     auto &submap = entry.second;
-    //     for(auto it=submap.begin();it!=submap.end();)
+    //     fl *flptr = new fl[submap.size()];
+    //     int index=0;
+    //     for(auto it=submap.begin();it!=submap.end();it++)
     //     {
-    //         if(it->second<5)it = submap.erase(it);
-    //         else it++;
+    //         flptr[index].flword=it->first;
+    //         flptr[index++].cooccurance=it->second;            
     //     }
-    // }    
-    // for(auto it = localmap.begin();it!=localmap.end();)
-    // {
-    //     if((it->second).size()<5) it = localmap.erase(it);
-    //     else it++;
+    //     localmapstruct[entry.first] = flptr;
+    //     localmapsizes[entry.first] = submap.size();
     // }
     
-
+    // for(int l=0;l<size;l++){
+    //     int max=0, arr[150];
+    //     int chunksize = localmapstruct.size()/150;
+    //     auto iter = localmapstruct.begin();
+    //     for(int i=0;i<150;i++)
+    //     {
+    //         int temp=0;
+    //         for(int j=0;j<chunksize;j++)
+    //         {
+    //             //fl *flptr = iter->second;
+    //             int size = localmapsizes[iter->first];
+    //             temp+=size;
+    //             if(iter==localmapstruct.end())break;
+    //             iter++;
+    //         }
+    //         arr[i]=temp;if(temp>max)max=temp;
+    //     }
+    //     int divideby = max/10;
+    //     for(int i=0;i<150;i++)
+    //         arr[i]=(arr[i]*10)/max;
+    //     for(int i=10;i>0;i--)
+    //     {
+    //         for(int j=0;j<150;j++)
+    //         {
+    //             if(arr[j]==i){cout<<"*";arr[j]--;}
+    //             else cout<<"_"; 
+    //         }
+    //         cout<<endl;
+    //     }
+    //     MPI::COMM_WORLD.Barrier();
+    // }
+    
+    if(myrank==0) cout << "Process: " << myrank << " Before SL Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
     process_secondlevel(myrank, size);
 
     if(myrank==0) cout << "Process: " << myrank << " After SL Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;

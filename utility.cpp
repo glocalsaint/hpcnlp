@@ -113,12 +113,12 @@
                 boost::tokenizer<boost::char_separator<char>> tokens(line, sep);
                 int i=0; string two,three;
                 for (const auto& t : tokens) {
-                    if(i==2) {two.assign(t); if(isdigit(two.at(0)))break;}//}
+                    if(i==2) {two.assign(t); if(ispunct(two.at(0)) || isdigit(two.at(0)))break;}//}
                     if(i==3)
                     {
                         if(t.compare("NN")==0 || t.compare("ADJ")==0)
                         {
-                            string uniqueword(two+":"+t);
+                            string uniqueword(two+t.at(0));
                             if(uniqueword.length()>STRING_LENGTH-2)break;
                             uniquewords.insert(uniqueword);
                             if(frequencymap.find(uniqueword)==frequencymap.end())
