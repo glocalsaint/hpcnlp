@@ -1,6 +1,6 @@
  #include "src/utility.hpp"
 #include "mpi.h"
-#include "graph.hpp"
+//#include "graph.hpp"
 #include <unordered_set>
 using namespace std;
 void process_secondlevel(int &myrank , int &size){
@@ -298,29 +298,32 @@ void process_secondlevel(int &myrank , int &size){
         //     }
         // }
         int index = 0;
+        clock_t graphtime = clock();
         for(auto &twordentry: tword_flwords_map)
         {                
             auto &tword = twordentry.first;
             auto &flwords = twordentry.second;
             //cout << "Creaing graph for tword: " << tword <<endl;
-            Graph g(tword);
-            g.create_graphwithedgelists(flwords , mapedgelists[tword] , fl_frequency_map);
+            Graph *g = new Graph(tword);
+            g->create_graphwithedgelists(flwords , mapedgelists[tword] , fl_frequency_map);
             std::vector<string> roothubs; int dog, non, noe;
-            g.get_roothubs(roothubs, dog, non, noe);
-            g.performMST();
-            string s = tword + " :: ";
-            for(auto &entry: roothubs)
-            {
-                //cout << entry.first<< " :: ";
-                s+= entry + " , ";
-                // for(auto &root: entry.second)
-                //     cout << root << " ";
+            g->get_roothubs(roothubs, dog, non, noe);
+            g->performMST();
+            stringtographmap[tword] = g;            
+            // string s = tword + " :: ";
+            // for(auto &entry: roothubs)
+            // {
+            //     //cout << entry.first<< " :: ";
+            //     s+= entry + " , ";
+            //     // for(auto &root: entry.second)
+            //     //     cout << root << " ";
                 
-            }
-            cout <<s <<endl;
+            // }
+            // cout <<s <<endl;
             // if(flwords.size() != mapedgelists[tword].size()) 
             //     cout << "Difference: " << flwords.size() << " - " << mapedgelists[tword].size() << " = " <<flwords.size() - mapedgelists[tword].size()<<endl;
         }
+        if( myrank == size-1 )cout<<endl<<"Time taken for graph" << (clock()-graphtime)/(double) CLOCKS_PER_SEC<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
         fl_frequency_map.clear();
         delete[] recv_frequency_gather;
         delete[] recv_edgedata_gather;
@@ -330,9 +333,15 @@ void process_secondlevel(int &myrank , int &size){
         }
         tword_flwords_map.clear();
     }//End while loop       
+    if( myrank == size-1 )cout<<endl<<"Time taken for SL1 " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
+    for(auto &entry : localmap )
+    {
+        entry.second.clear();        
+    }
+    localmap.clear();
+    frequencymap.clear();
 
-
-    if( myrank == size-1 )cout<<endl<<"Time taken for SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
+    if( myrank == size-1 )cout<<endl<<"Time taken for SL2 " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
 
 
 

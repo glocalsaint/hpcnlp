@@ -2,7 +2,6 @@
 #include "mpi.h"
 void process_firstlevel(int &myrank , int &size){
 
-
     char* recvdata;
     int sizeofint = sizeof(int);
     int recvtwords_count=0;

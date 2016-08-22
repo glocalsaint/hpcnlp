@@ -1,13 +1,15 @@
 #include "src/utility.hpp"
 #include "mpi.h"
+#include "zlib-1.2.8/zlib.h"
+//#include "graph.hpp"
 void process_files()
 {
-    //std::vector<string> files=getallfilenames("/work/scratch/vv52zasu/inputfiles/");
-    std::vector<string> files=getallfilenames("/home/vv52zasu/mpi/inputfiles/");
+    std::vector<string> files=getallfilenames("/work/scratch/vv52zasu/inputfiles/");
+    //std::vector<string> files=getallfilenames("/home/vv52zasu/mpi/inputfiles/");
     MPI::Status status; 
     int myrank = MPI::COMM_WORLD.Get_rank();
     int size = MPI::COMM_WORLD.Get_size();
-
+    int filecount=0;
 /*//////Read files in a loop and write initial data to localmap/////*/
 
     for(std::vector<string>::iterator it = files.begin(); it != files.end(); ++it)
@@ -20,9 +22,9 @@ void process_files()
         char *bufchar, *bufchar_header;
         int CHUNKSIZE = (filesize/size)+1;
         CHUNKSIZE = std::max(CHUNKSIZE, 10000);
-        bufchar =  new char[CHUNKSIZE+30000];
+        bufchar =  new char[CHUNKSIZE+300000];
         bufchar_header = bufchar;
-        bufchar = bufchar + 30000;
+        bufchar = bufchar + 300000;
         MPI_Status status1;
 
         MPI_File_seek(thefile, (myrank)*CHUNKSIZE, MPI_SEEK_SET);
@@ -41,11 +43,11 @@ void process_files()
         }
 
         int sendcharcount = count -( lastsentence - bufchar );
-        if(sendcharcount < 0 || sendcharcount > 30000) sendcharcount =0;
+        if(sendcharcount < 0 || sendcharcount > 300000) sendcharcount =0;
         //cout << "CHUNKSIZE: "<< CHUNKSIZE << "count: " << count << " sendcharcount: " << sendcharcount << endl;
         //cout << lastsentence << endl;
         char *recvptr;
-        recvptr = new char[30001];
+        recvptr = new char[300000];
 
         int dest=0,src=0;
         if(myrank==size-1)
@@ -66,24 +68,45 @@ void process_files()
         //MPI::COMM_WORLD.Sendrecv(lastsentence, sendcharcount, MPI_CHAR, dest, 123, recvptr, CHUNKSIZE, MPI_CHAR, src, 123, status);
         int recvcount=0;
         MPI_Get_count( &status1, MPI_CHAR, &recvcount );
-        //cout << "Recvcount: " << recvcount << endl;
+        //cout << "Process: " << myrank << ". Recvcount: " << recvcount << endl;
 
         //int recvcount = strlen(recvptr);
-
+        
         bufchar = bufchar -recvcount;
-        if(recvcount >= 300000) cout << "Process: " << myrank << " DUDE wtf1"<<endl;
+        if(recvcount >= 300000) cout << "Process: " << myrank << " DUDE wtf1 man viswanath"<<endl;
         memcpy(bufchar, recvptr, recvcount);
         int finalcount = lastsentence - bufchar;
         // cout << "Final count: " << finalcount << " total allocated: " << CHUNKSIZE<< " count + recvcount - sendcharcount: " << count+ recvcount -sendcharcount<< endl;
-        if( finalcount >= CHUNKSIZE+300000) cout << "Process: " << myrank <<  " DUDE wtf"<<endl;
+        if( finalcount > CHUNKSIZE+300000) {
+            cout << "Process: " << myrank <<  " DUDE wtf man viswanath. "<< "Final Count: "<<finalcount<<endl;
+            // if(myrank==32||myrank ==94){
+            // for(int i=0;i<100; i++)
+            //     cout<<bufchar[i];
+            // cout <<endl;
+            //  }
+        }
+
+        long unsigned int destsize = compressBound(finalcount);
+        unsigned char *compressedstr = new unsigned char[destsize];
+        int result = compress(compressedstr, &destsize, (unsigned char*)bufchar, finalcount);
+        
+        compressedvector.push_back(std::make_tuple(compressedstr, destsize, finalcount));
         string finalstr(bufchar, finalcount );
         // //cout << recvcount << endl;
         delete[] recvptr;
         // //cout << finalstr<<endl;
         process_string(finalstr, localmap, frequencymap);
+        int msize = (int)mapsize(localmap)+(int)((frequencymap.size()* 20)/(1024*1024));
+        int max;
+        MPI_Reduce(&msize, &max, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
+        
         delete[] (bufchar_header);
-         if(myrank ==0)
-             std::cout<<"Processing file Ended: "<<(*it).c_str()<<endl;
+        if(myrank ==0){
+            cout<<"MaxMapsize: "<<max<<endl;    
+            std::cout<<"Processing file Ended: "<<(*it).c_str()<<endl;
+        }
+        filecount++;
+        //if(filecount%100 == 0)process_firstlevel(myrank, size);
 
          
     }

@@ -1,12 +1,15 @@
 #include "src/utility.hpp"
 #include "src/mpi_datatypes.hpp"
 #include "mpi.h"   
+//#include "graph.hpp"
 
 using namespace std;
 
 std::unordered_map<string,int> frequencymap;
 std::unordered_map<string,std::unordered_map<string, int>> localmap;
 std::unordered_map<string,std::unordered_map<string, int>> localsecondlevelmap;
+std::vector<std::tuple<unsigned char*, long unsigned int, long unsigned int>> compressedvector;
+std::unordered_map<string, Graph*> stringtographmap;
 std::set<string> mystringset;
 
 
@@ -126,6 +129,8 @@ int main(int argc, char *argv[])
 
     if(myrank==0) cout << "Process: " << myrank << " After SL Local map size: "<< localmap.size() <<" "<< ". Actual data size: "<<mapsize(localmap)<< endl;
 
+
+    disambiguate(myrank, size);
 
     // //if ( myrank == 0 ) cout << "Process: " << myrank << " writing to file started.." << "\n";
           
