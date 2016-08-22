@@ -12,6 +12,7 @@ using namespace std;
 
 struct node
  {
+ public: 
     string str;
     int frequency;
     int cooccurance_count;
@@ -23,7 +24,7 @@ struct node
     bool isroothub;
 
 
-    node():isGoodCandidate(0),roothubnum(-1),score(0),isroothub(false),tree_edge(std::make_pair(nullptr,2.0)){}
+    node():isGoodCandidate(0),roothutnum(-1),score(0),isroothub(false),tree_edge(std::make_pair(nullptr,2.0)){}
     void insert_edge(node *newnode,double weight)
     {
         edges.push_back(std::make_pair(newnode,weight));
@@ -223,7 +224,7 @@ public:
         std::pair<node*, double> minweightedge=std::make_pair(nullptr, 2.0);
         node* from_node=nullptr;
         int allzeroedges=0;
-        while(treeset.size()!=stringtonode_map.size() && treeset.size()!=allzeroedges)
+        while(treeset.size()!=allzeroedges)
         {
             minweightedge=std::make_pair(nullptr, 2.0);
             //prevsize=treeset.size();
