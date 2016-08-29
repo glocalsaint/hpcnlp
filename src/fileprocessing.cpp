@@ -1,4 +1,4 @@
-#include "src/utility.hpp"
+#include "utility.hpp"
 #include "mpi.h"
 #include "zlib-1.2.8/zlib.h"
 //#include "graph.hpp"
@@ -73,12 +73,12 @@ void process_files()
         //int recvcount = strlen(recvptr);
         
         bufchar = bufchar -recvcount;
-        if(recvcount >= 300000) cout << "Process: " << myrank << " DUDE wtf1 man viswanath"<<endl;
+        //if(recvcount >= 300000) cout << "Process: " << myrank << " exceeded size limit"<<endl;
         memcpy(bufchar, recvptr, recvcount);
         int finalcount = lastsentence - bufchar;
         // cout << "Final count: " << finalcount << " total allocated: " << CHUNKSIZE<< " count + recvcount - sendcharcount: " << count+ recvcount -sendcharcount<< endl;
         if( finalcount > CHUNKSIZE+300000) {
-            cout << "Process: " << myrank <<  " DUDE wtf man viswanath. "<< "Final Count: "<<finalcount<<endl;
+            cout << "Process: " << myrank <<  " exceeded size limit"<< "Final Count: "<<finalcount<<endl;
             // if(myrank==32||myrank ==94){
             // for(int i=0;i<100; i++)
             //     cout<<bufchar[i];
@@ -91,11 +91,12 @@ void process_files()
         int result = compress(compressedstr, &destsize, (unsigned char*)bufchar, finalcount);
         
         compressedvector.push_back(std::make_tuple(compressedstr, destsize, finalcount));
-        string finalstr(bufchar, finalcount );
+        //string finalstr(bufchar, finalcount );
         // //cout << recvcount << endl;
         delete[] recvptr;
         // //cout << finalstr<<endl;
-        process_string(finalstr, localmap, frequencymap);
+        //process_string(finalstr, localmap, frequencymap);
+        process_buffer(bufchar, finalcount, localmap, frequencymap);
         int msize = (int)mapsize(localmap)+(int)((frequencymap.size()* 20)/(1024*1024));
         int max;
         MPI_Reduce(&msize, &max, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);

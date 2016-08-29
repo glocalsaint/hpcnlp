@@ -1,4 +1,4 @@
-#include "src/utility.hpp"
+#include "utility.hpp"
 #include "mpi.h"
 void process_firstlevel(int &myrank , int &size){
 

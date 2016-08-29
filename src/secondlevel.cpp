@@ -1,4 +1,4 @@
- #include "src/utility.hpp"
+ #include "utility.hpp"
 #include "mpi.h"
 //#include "graph.hpp"
 #include <unordered_set>
@@ -6,16 +6,25 @@ using namespace std;
 void process_secondlevel(int &myrank , int &size){
     clock_t sltime = clock();
 
-    auto it = localmap.begin();
+    
     int round =0;
     
+    vector<string> twords(localmap.size());
+    for(auto &entry:localmap)
+        twords.push_back(entry.first);
+
+    std::random_shuffle ( twords.begin(), twords.end() );
+
+    auto it = twords.begin();
+
     while(1)
     {
-        if ( myrank == 0 ) cout <<"Process: " << myrank << ". Round Number: " << round++ << endl;
+        //if ( myrank == 0 )
+         cout <<"Process: " << myrank << ". Round Number: " << round++ << endl;
 
         /////////////way to know if all can exit the loop; all have processed SL/////////
         int amidone = 0 , alldone = 0 ;
-        if(it == localmap.end()) amidone = 1;
+        if(it == twords.end()) amidone = 1;
         MPI_Allreduce(&amidone,    &alldone,    1,    MPI_INT,    MPI_SUM,    MPI_COMM_WORLD);
         if( alldone == size ) break;
         /////////////way to know if all can exit the loop; all have processed SL/////////
@@ -26,13 +35,14 @@ void process_secondlevel(int &myrank , int &size){
         std::unordered_map<string, int> fl_frequency_map;
         while( noof_flwords < 70000 )
         {
-            if ( it == localmap.end() ) break;
-            if(it->first.back()!='N'){it++; continue;}
-            auto &v = tword_flwords_map[it->first];
-            for( auto &entry : it->second ){
+            if ( it == twords.end() ) break;
+            string tword = *it;
+            if(tword.back()!='N'){it++; continue;}
+            auto &v = tword_flwords_map[tword];
+            for( auto &entry : localmap[tword] ){
                 v.push_back(std::make_pair(entry.first, entry.second));
             }
-            noof_flwords += (it->second).size();
+            noof_flwords += localmap[tword].size();
             noof_twords++;
             it++;
         }
@@ -70,9 +80,11 @@ void process_secondlevel(int &myrank , int &size){
         {
             vsize+=entry.second.size();
         }
-        if(myrank == 0) cout << "Process: " << myrank <<" .Sending " << std::distance(localmap.begin(), it) <<"/"<<localmap.size()<<" flwords size: " << vsize<<endl;
+        //if(myrank == 0) 
+        cout << "Process: " << myrank <<" .Sending " << std::distance(twords.begin(), it) <<"/"<<twords.size()<<" flwords size: " << vsize<<endl;
         MPI::COMM_WORLD.Barrier();
         int sendsize = 4 * noof_twords + STRING_LENGTH * noof_flwords;
+
 
         char *flwords_sendbuffer = new char[sendsize];
         int tempsize = 0 , sizeofint = sizeof(int);
@@ -242,6 +254,7 @@ void process_secondlevel(int &myrank , int &size){
 
         }//End for loop
 
+        cout <<"Process: " << myrank << ". out of size loop. "  << endl;
         int dataindex = 0;
         char *freqmemptr = recv_frequency_gather;
         freqencysizegather /= STRING_LENGTH + sizeof(int);
@@ -281,6 +294,7 @@ void process_secondlevel(int &myrank , int &size){
                 }
             }
         }
+        cout <<"Process: " << myrank << ". Edges gathered. "  << endl;
         // int l=0;;
         // //if(myrank ==0){auto it = tword_flwords_map.begin();auto v = it -> second; cout << v[0]<<endl;}
         // for(auto &twordentry: tword_flwords_map)
@@ -303,12 +317,15 @@ void process_secondlevel(int &myrank , int &size){
         {                
             auto &tword = twordentry.first;
             auto &flwords = twordentry.second;
-            //cout << "Creaing graph for tword: " << tword <<endl;
+            //cout << "Process: "<<myrank << "tword:" << tword << ":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
             Graph *g = new Graph(tword);
             g->create_graphwithedgelists(flwords , mapedgelists[tword] , fl_frequency_map);
-            std::vector<string> roothubs; int dog, non, noe;
-            g->get_roothubs(roothubs, dog, non, noe);
+            //cout << "Process: "<<myrank << "donegraph:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
+            std::vector<string> roothubs;
+            g->get_roothubs(roothubs);
+            //cout << "Process: "<<myrank << "doneroothubs:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
             g->performMST();
+            //cout << "Process: "<<myrank << "doneMST:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
             stringtographmap[tword] = g;            
             // string s = tword + " :: ";
             // for(auto &entry: roothubs)
@@ -323,7 +340,8 @@ void process_secondlevel(int &myrank , int &size){
             // if(flwords.size() != mapedgelists[tword].size()) 
             //     cout << "Difference: " << flwords.size() << " - " << mapedgelists[tword].size() << " = " <<flwords.size() - mapedgelists[tword].size()<<endl;
         }
-        if( myrank == size-1 )cout<<endl<<"Time taken for graph" << (clock()-graphtime)/(double) CLOCKS_PER_SEC<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
+        //if( myrank == size-1 )
+        cout<<endl<<"Time taken for graph" << (clock()-graphtime)/(double) CLOCKS_PER_SEC<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
         fl_frequency_map.clear();
         delete[] recv_frequency_gather;
         delete[] recv_edgedata_gather;

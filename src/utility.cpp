@@ -1,4 +1,4 @@
-#include "src/utility.hpp"
+#include "utility.hpp"
 
     unsigned long mapsize(const std::unordered_map<string,std::unordered_map<string,int>> &map){
         unsigned long mapelements = map.size();
@@ -92,6 +92,15 @@
      }
 /*///////////////Insert to Local Map Function/////////////////*/         
 
+bool contains_punctordigit(const string &str)
+{
+    for(auto it = str.begin(); it!=str.end(); it++)
+    {
+        if(ispunct(*it) || isdigit(*it))
+            return true;
+    }
+    return false;
+}
 
 /*///////////////Process String Function/////////////////*/              
      void process_string(string &str, std::unordered_map<string,std::unordered_map<string,int>> &localmap, std::unordered_map<string, int> &frequencymap)
@@ -113,7 +122,13 @@
                 boost::tokenizer<boost::char_separator<char>> tokens(line, sep);
                 int i=0; string two,three;
                 for (const auto& t : tokens) {
-                    if(i==2) {two.assign(t); if(ispunct(two.at(0)) || isdigit(two.at(0)))break;}//}
+                    if(i==2) 
+                    {
+                        if(contains_punctordigit(t))
+                            break;
+                        two.assign(t);                        
+                        
+                    }//}
                     if(i==3)
                     {
                         if(t.compare("NN")==0 || t.compare("ADJ")==0)
@@ -145,3 +160,57 @@
      }
 /*///////////////Process String Function/////////////////*/              
 
+void process_buffer(char *str, int length,std::unordered_map<string,std::unordered_map<string,int>> &localmap, std::unordered_map<string, int> &frequencymap)
+{
+    
+    // int myrank = MPI::COMM_WORLD.Get_rank(); 
+    
+    char *buffer = str;
+
+    std::set<string> uniquewords;
+    int k=0;
+    while(str-buffer < length)
+    {
+        char * sentenceend = strchr(str+1,'\n');
+        if(sentenceend==NULL) break;
+
+        string line = string(str, sentenceend-str);
+        boost::char_separator<char> sep("\t ");
+        boost::tokenizer<boost::char_separator<char>> tokens(line, sep);
+        int i=0; string lemma, pos;
+        for (const auto& token : tokens) {
+            if(i==2) 
+            {
+                if(contains_punctordigit(token))
+                    break;
+                lemma.assign(token);
+            }
+            if(i==3)
+            {
+                if(token.compare("NN")==0 || token.compare("ADJ")==0)
+                {
+                    string uniqueword(lemma+token.at(0));
+                    if(uniqueword.length()>STRING_LENGTH-2)break;
+                    uniquewords.insert(uniqueword);
+                    if(frequencymap.find(uniqueword)==frequencymap.end())
+                    {
+                        frequencymap[uniqueword]=1;
+                    }
+                    else
+                    {
+                        int stringcount = frequencymap[uniqueword]+1;
+                        frequencymap[uniqueword] = stringcount;
+                    }
+                }
+            }
+            i++;
+            if(i>3) break;
+        }
+        if((*(str+1)=='\n' ||str-buffer==length-1) && !uniquewords.empty())
+        {   
+            insert_to_localmap(uniquewords,localmap);  
+            uniquewords.clear();                              
+        }
+        str=sentenceend;
+    }
+}

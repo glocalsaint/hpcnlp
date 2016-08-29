@@ -1,5 +1,5 @@
-#include "src/utility.hpp"
-#include "src/mpi_datatypes.hpp"
+#include "utility.hpp"
+#include "mpi_datatypes.hpp"
 #include "mpi.h"   
 //#include "graph.hpp"
 
