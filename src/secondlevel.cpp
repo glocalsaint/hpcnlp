@@ -1,12 +1,57 @@
  #include "utility.hpp"
 #include "mpi.h"
-//#include "graph.hpp"
+#include "graph.hpp"
 #include <unordered_set>
+#include "config.hpp"
 using namespace std;
-void process_secondlevel(int &myrank , int &size){
-    clock_t sltime = clock();
+using namespace config;
+//extern sqlite3 *db;
 
-    
+void create_open_db(int &myrank)
+{
+   char *zErrMsg = 0;
+   int  rc;
+   string sql;
+
+   /* Open database */
+   string dbname = "score" + to_string(myrank)+".db";
+   rc = sqlite3_open(dbname.c_str(), &db);
+   if( rc ){
+      fprintf(stderr, "Can't open database: %s\n", sqlite3_errmsg(db));
+      return;
+   }else{
+      //fprintf(stdout, "Opened database successfully\n");
+   }
+
+   /* Create SQL statement */
+   sql = "CREATE TABLE if not exists scoreroothub("  \
+         "TWORD TEXT      NOT NULL," \
+         "CWORD TEXT      NOT NULL," \
+         "SCORE            REAL     NOT NULL," \
+         "ROOTHUBNUM        INT NOT NULL);" ;
+         
+
+   /* Execute SQL statement */
+   rc = sqlite3_exec(db, sql.c_str(), 0, 0, &zErrMsg);
+   if( rc != SQLITE_OK ){
+   fprintf(stderr, "SQL error: %s\n", zErrMsg);
+      sqlite3_free(zErrMsg);
+   }else{
+      //fprintf(stdout, "Table created successfully\n");
+   }
+   //sqlite3_close(db);
+   return ;
+}
+
+void close_db()
+{
+    sqlite3_close(db);
+}
+
+void process_secondlevel(int &myrank , int &size, double &processingtime){
+    clock_t sltime = clock();
+   
+    processingtime = 0;
     int round =0;
     
     vector<string> twords(localmap.size());
@@ -15,12 +60,31 @@ void process_secondlevel(int &myrank , int &size){
 
     std::random_shuffle ( twords.begin(), twords.end() );
 
-    auto it = twords.begin();
+    clock_t graphclock = clock();
+    double graphtime = 0;
 
+    auto it = twords.begin();
+    double vm, rss;
+    process_mem_usage(vm, rss);
+    if(WRITE_OUTPUT_TO_FILE == 1)
+        outputstream << "P:"<< myrank << " before SL VM: " << vm << "; RSS: " << rss << endl<<endl;
+    else   
+        cout << "P:"<< myrank << " before SL VM: " << vm << "; RSS: " << rss << endl<<endl;
+    
+        
+    //create_open_db(myrank);
+    //sqlite3_exec(db, "BEGIN TRANSACTION", NULL, NULL, NULL);
     while(1)
     {
+        clock_t starttime = clock();
+
         //if ( myrank == 0 )
-         cout <<"Process: " << myrank << ". Round Number: " << round++ << endl;
+         if(WRITE_OUTPUT_TO_FILE == 1)
+            outputstream << "P:" << myrank << ". Round Number: " << round++ << endl;
+        else   
+            cout <<"P:" << myrank << ". Round Number: " << round++ << endl;
+        
+         
 
         /////////////way to know if all can exit the loop; all have processed SL/////////
         int amidone = 0 , alldone = 0 ;
@@ -33,7 +97,7 @@ void process_secondlevel(int &myrank , int &size){
         int noof_flwords = 0;
         std::map < string , vector<std::pair<string, int>> > tword_flwords_map;
         std::unordered_map<string, int> fl_frequency_map;
-        while( noof_flwords < 70000 )
+        while( noof_flwords < NUMOF_FLWORDS )
         {
             if ( it == twords.end() ) break;
             string tword = *it;
@@ -81,7 +145,12 @@ void process_secondlevel(int &myrank , int &size){
             vsize+=entry.second.size();
         }
         //if(myrank == 0) 
-        cout << "Process: " << myrank <<" .Sending " << std::distance(twords.begin(), it) <<"/"<<twords.size()<<" flwords size: " << vsize<<endl;
+        if(WRITE_OUTPUT_TO_FILE == 1)
+            outputstream << "P:" << myrank <<" .Sending till" << std::distance(twords.begin(), it) <<"/"<<twords.size()<<" flwords size: " << vsize<<endl;
+        else   
+            cout << "P:" << myrank <<" .Sending till" << std::distance(twords.begin(), it) <<"/"<<twords.size()<<" flwords size: " << vsize<<endl;
+        
+        //cout << "P:" << myrank <<" .Sending " << std::distance(twords.begin(), it) <<"/"<<twords.size()<<" flwords size: " << vsize<<endl;
         MPI::COMM_WORLD.Barrier();
         int sendsize = 4 * noof_twords + STRING_LENGTH * noof_flwords;
 
@@ -148,6 +217,7 @@ void process_secondlevel(int &myrank , int &size){
                         vecofvecs[tword_index].push_back(string(flword));
                     }
                 }
+                delete [] flwords_recvbuffer;
                 int index = 0;
                 
                 for(auto &vecentry : vecofvecs)
@@ -206,11 +276,11 @@ void process_secondlevel(int &myrank , int &size){
 
             int recv_frequency_sizes[size];
 
-            int fdata_size = (STRING_LENGTH + sizeof(int)) * fmap.size(); 
+            int fdata_size = (STRING_LENGTH + sizeof(int)) * fl_frequency_map.size(); 
             MPI_Gather( &fdata_size , 1 , MPI_INT , recv_frequency_sizes , 1 , MPI_INT , current_process , MPI_COMM_WORLD);
             char *tosendfrequency_data = new char[fdata_size];
             memptr = tosendfrequency_data;
-            for(auto &fentry : fmap)
+            for(auto &fentry : fl_frequency_map)
             {
                 memcpy(memptr, fentry.first.c_str(), fentry.first.size()+1);
                 memptr += STRING_LENGTH;
@@ -246,18 +316,38 @@ void process_secondlevel(int &myrank , int &size){
                     recvdisplacements[j] = recvdisplacements[j-1] + recv_edge_sizes[j-1];
                 }
                 totalgathersize = recvdisplacements[size-1] + recv_edge_sizes[size-1];
+
+                // #if WRITE_TO_OUTPUT_FILE == 1
+                //     outputstream << "P:"<< myrank << " Total edge size : " << (double)totalgathersize/(1024*1024*1024)<<endl;
+                // else   
+                //     cout<< "P:"<< myrank << " Total edge size : " << (double)totalgathersize/(1024*1024*1024)<<endl;
+                // 
+                //cout<< "P:"<< myrank << " Total edge size : " << (double)totalgathersize/(1024*1024*1024)<<endl;
                 recv_edgedata_gather = new int[ totalgathersize ];                
             }   
             MPI_Gatherv( edgedata , edgessize , MPI_INT , recv_edgedata_gather , recv_edge_sizes, recvdisplacements, MPI_INT , current_process ,  MPI_COMM_WORLD);
+
+            //Virtual Memory
+            // double vm, rss;
+            // process_mem_usage(vm, rss);
+            // if(myrank == current_process)
+            // {                
+            //     #if WRITE_TO_OUTPUT_FILE == 1
+            //         outputstream << "P:"<< myrank << " SL 1 loop VM: " << vm << "; RSS: " << rss << endl<<endl;
+            //     else   
+            //         cout << "P:"<< myrank << " SL 1 loop VM: " << vm << "; RSS: " << rss << endl<<endl;
+            //                     
+            // }
 
             delete [] edgedata;
 
         }//End for loop
 
-        cout <<"Process: " << myrank << ". out of size loop. "  << endl;
+        //cout <<"P:" << myrank << ". out of size loop. "  << endl;
         int dataindex = 0;
         char *freqmemptr = recv_frequency_gather;
         freqencysizegather /= STRING_LENGTH + sizeof(int);
+        
         while(freqencysizegather--)
         {
             char flword[STRING_LENGTH];
@@ -266,9 +356,9 @@ void process_secondlevel(int &myrank , int &size){
             int frequency;
             memcpy(&frequency, freqmemptr, sizeof(int));
             freqmemptr += sizeof(int);
-            fl_frequency_map[flword] = frequency;
+            fl_frequency_map[flword] = frequency;            
         }
-
+                
         map<string,  map<int, std::vector<int> >> mapedgelists;
         //if(myrank ==0)
         for(int l = 0; l < size ; l++)
@@ -294,7 +384,10 @@ void process_secondlevel(int &myrank , int &size){
                 }
             }
         }
-        cout <<"Process: " << myrank << ". Edges gathered. "  << endl;
+
+        delete[] recv_frequency_gather;
+        delete[] recv_edgedata_gather;
+        //cout <<"Process: " << myrank << ". Edges gathered. "  << endl;
         // int l=0;;
         // //if(myrank ==0){auto it = tword_flwords_map.begin();auto v = it -> second; cout << v[0]<<endl;}
         // for(auto &twordentry: tword_flwords_map)
@@ -312,57 +405,118 @@ void process_secondlevel(int &myrank , int &size){
         //     }
         // }
         int index = 0;
-        clock_t graphtime = clock();
+        graphclock = clock();
+        // std::ofstream fs;
+        // fs.open (outputfiles_location+"/wsi_process"+to_string(myrank)+".txt", std::ofstream::out | std::ofstream::app);
+
+        
         for(auto &twordentry: tword_flwords_map)
         {                
+            clock_t singlegraphclock = clock();
             auto &tword = twordentry.first;
+            //if(tword.compare("priceN")!=0)continue;
             auto &flwords = twordentry.second;
-            //cout << "Process: "<<myrank << "tword:" << tword << ":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
+            //cout << "P:"<<myrank << " tword:" << tword << ":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
             Graph *g = new Graph(tword);
-            g->create_graphwithedgelists(flwords , mapedgelists[tword] , fl_frequency_map);
-            //cout << "Process: "<<myrank << "donegraph:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
+            g->create_graphwithedgelists(flwords , mapedgelists[tword] , fl_frequency_map, myrank);
+            mapedgelists[tword].clear();
+            flwords.clear();
+            mapedgelists.erase(tword);
+            //cout << "P:"<<myrank << " donegraph:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
             std::vector<string> roothubs;
             g->get_roothubs(roothubs);
-            //cout << "Process: "<<myrank << "doneroothubs:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
+            //cout << "P:"<<myrank << " doneroothubs:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
+            double vm, rss;
+            
             g->performMST();
-            //cout << "Process: "<<myrank << "doneMST:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
-            stringtographmap[tword] = g;            
-            // string s = tword + " :: ";
+            //cout << "P:"<<myrank << "doneMST:" <<tword <<":"<<(clock()-graphtime)/(double) CLOCKS_PER_SEC<<endl;
+            if(WRITE_OUTPUT_TO_FILE == 1)
+                outputstream << " T: "<<(clock()-singlegraphclock)/(double) CLOCKS_PER_SEC<<endl;
+            else   
+                cout << " T: "<<(clock()-singlegraphclock)/(double) CLOCKS_PER_SEC<<endl;
+        
+            stringtographmap[tword] = g;    
+            
+            ///////////////////////////////////
+            //g->roothubs.clear();        
+             g->nodelist.clear();
+            for(auto &entry : g->stringtonode_map)
+            {
+                auto nodeptr = entry.second;
+                delete nodeptr;
+            }
+            g->stringtonode_map.clear();
+            ///////////////////////////////////
+
+            // string s = tword + "  ";
             // for(auto &entry: roothubs)
             // {
             //     //cout << entry.first<< " :: ";
-            //     s+= entry + " , ";
+            //     s+= entry + "  ";
             //     // for(auto &root: entry.second)
             //     //     cout << root << " ";
                 
             // }
+            // fs << s << "\n";
             // cout <<s <<endl;
             // if(flwords.size() != mapedgelists[tword].size()) 
             //     cout << "Difference: " << flwords.size() << " - " << mapedgelists[tword].size() << " = " <<flwords.size() - mapedgelists[tword].size()<<endl;
         }
+        
+         if(ALLOW_TIME_LOGGING == 1)
+            graphtime += (clock()-graphclock)/(double) CLOCKS_PER_SEC;
+        
+        process_mem_usage(vm, rss);
+        if(WRITE_OUTPUT_TO_FILE == 1)
+            outputstream << "P:"<< myrank << " VM: " << vm << "; RSS: " << rss << endl<<endl;
+        else   
+            cout << "P:"<< myrank << " VM: " << vm << "; RSS: " << rss << endl<<endl;
+        
+        
+        //fs.close();
         //if( myrank == size-1 )
-        cout<<endl<<"Time taken for graph" << (clock()-graphtime)/(double) CLOCKS_PER_SEC<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
+       
+        if(WRITE_OUTPUT_TO_FILE == 1)
+            outputstream <<endl<<"Time taken for graph" << graphtime<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
+        else   
+            cout <<endl<<"Time taken for graph" << graphtime<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
+            
+        cout<<"P: "<<myrank<<" round:"<<round-1<<" Time taken for graph" << graphtime<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
         fl_frequency_map.clear();
-        delete[] recv_frequency_gather;
-        delete[] recv_edgedata_gather;
+        
         for(auto &entry : tword_flwords_map)
         {
             entry.second.clear();
         }
         tword_flwords_map.clear();
-    }//End while loop       
-    if( myrank == size-1 )cout<<endl<<"Time taken for SL1 " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
+        if (ALLOW_TIME_LOGGING==1)
+            processingtime += (clock()-starttime)/(double) CLOCKS_PER_SEC;
+    }//End while loop    
+    MPI::COMM_WORLD.Barrier();   
+
+    
+    if (ALLOW_TIME_LOGGING==1)
+     if(WRITE_OUTPUT_TO_FILE == 1)
+            outputstream << endl << "Time taken for graph" << graphtime<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
+        else   
+            cout << endl << "Time taken for graph" << graphtime<< " SL " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";
+    
+    if (ALLOW_TIME_LOGGING==1)
+    if(WRITE_OUTPUT_TO_FILE == 1)
+        outputstream <<endl<<"P:" << myrank <<" Individual time taken for SL: "<< processingtime << "\n";
+    else   
+        cout <<endl<<"P:" << myrank <<" Individual time taken for SL: "<< processingtime << "\n";
+
+
+    
     for(auto &entry : localmap )
     {
         entry.second.clear();        
     }
     localmap.clear();
     frequencymap.clear();
-
-    if( myrank == size-1 )cout<<endl<<"Time taken for SL2 " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
-
-
-
-    MPI::COMM_WORLD.Barrier();
+    //sqlite3_exec(db, "END TRANSACTION", NULL, NULL, NULL);
+    //close_db();
+    //if( myrank == size-1 )cout<<endl<<"Time taken for SL2 " << (clock()-sltime)/(double) CLOCKS_PER_SEC << "\n";        
 
 }

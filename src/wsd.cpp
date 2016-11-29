@@ -3,9 +3,12 @@
 #include "zlib-1.2.8/zlib.h"
 #include <cstdint>
 #include <fstream>
-//#include "graph.hpp"
+#include "config.hpp"
+#include <sqlite3.h> 
+using namespace config;
 
 
+//extern sqlite3 *db;
 void insert_to_vv( std::set<string> uniquewords, string sentenceid, vector<vector<string>> &vv, int size)
 {
 	string sentence=sentenceid;
@@ -51,7 +54,13 @@ void insert_to_vv( std::set<string> uniquewords, string sentenceid, vector<vecto
         }
         for ( const auto& token : tokens ) 
         {
-            if(i==2) {lemma.assign(token); if(ispunct(lemma.at(0)) || isdigit(lemma.at(0)))break;}//}
+            
+            if(i==2) 
+            {
+                if(contains_punctordigit(token))
+                    break;
+                lemma.assign(token);
+            }
             if(i==3)
             {
                 if(token.compare("NN") == 0 || token.compare("ADJ") == 0)
@@ -65,7 +74,7 @@ void insert_to_vv( std::set<string> uniquewords, string sentenceid, vector<vecto
             //if(i>3) break;
             //if(i==5).assign(token);
         }
-        if((*(str+1)=='\n' ||index==length-1) && !uniquewords.empty())
+        if((*(str+1)=='\n' ||str-buffer==length-1) && !uniquewords.empty())
         {   
             insert_to_vv(uniquewords, sentenceid, vv, size);  
             uniquewords.clear();                              
@@ -109,28 +118,31 @@ void wsd(string &str, vector<std::tuple<string, string, string>> &vtuplestowrite
     	}
     	words.push_back(token);
     }
+    
     for(auto &word : words)
     {
     	if(stringtographmap.find(word)!=stringtographmap.end())
     	{
-    		
     		Graph *graph = stringtographmap[word];
     		int roothubcount = graph->roothubs.size();
     		if(roothubcount==0)continue;
 
-    		double scorevector[roothubcount] = {0};
+    		double scorevector[roothubcount];
+    		std::fill_n (scorevector, roothubcount, 0);
 
 
     		for(auto &word1 : words)
     		{
     			if(word1.compare(word)!=0)
     		 	{
-    		 		if(graph->stringtonode_map.find(word1)!=graph->stringtonode_map.end())
+    		 		if(graph->stringtoscore_map.find(word1)!=graph->stringtoscore_map.end())
     		 		{
-    		 			//cout <<"came";
-	    		 		auto nodeptr = graph->stringtonode_map[word1];
-	    		 		double score = nodeptr->score;
-	    		 		int closeroothub = nodeptr->roothubnum;
+    		 			auto score_roothubnum = graph->stringtoscore_map[word1];
+	    		 		//auto nodeptr = graph->stringtonode_map[word1];
+	    		 		//double score = nodeptr->score;
+	    		 		//int closeroothub = nodeptr->roothubnum;
+	    		 		auto score = score_roothubnum.first;
+	    		 		auto closeroothub = score_roothubnum.second;
 	    		 		scorevector[closeroothub] += score;
     		 		}
     		 	}
@@ -147,27 +159,53 @@ void wsd(string &str, vector<std::tuple<string, string, string>> &vtuplestowrite
 
 void disambiguate(int &myrank , int &size)
 {
+
+	clock_t uncompress_clock = clock();
+    double uncompress_time = 0;
+
 	typedef uint8_t byte;
 	//cout << "Came";
 	vector<std::tuple<string, string, string>> vtuplestowrite;
 	vector<vector<string>> vv(size);
 	ofstream myfile;
-  	myfile.open ("wsd"+to_string(myrank)+".txt");
+  	myfile.open (outputfiles_location + "/wsdonefile"+to_string(myrank)+".txt");
 	clock_t wsdtime = clock();
+	//cout << "P:" << myrank << " " << compressedvector.size()<<endl;
+	double vm, rss;
 	for(auto &compressedentry : compressedvector)
 	{
+		process_mem_usage(vm, rss);
+        cout << "WSD: P:"<< myrank << " VM: " << vm << "; RSS: " << rss << endl;
+
 		auto compressedstr = std::get<0>(compressedentry);
+
 		auto compressedlen = std::get<1>(compressedentry);
+		//cout <<" P:" << myrank << " compressedsize: " << compressedlen << endl;
 		auto originallen = std::get<2>(compressedentry);
-		unsigned char *uncompressbuf = new unsigned char[(int)originallen];
-		long unsigned int uncompresslength;
-		int result = uncompress(uncompressbuf, &uncompresslength, compressedstr, compressedlen);
+		//if(myrank == 0) cout <<"LISTEN: " << compressedlen << " " << originallen << endl;
+
+		unsigned char *uncompressbuf = new unsigned char[(int)originallen ];
+		long unsigned int uncompresslength = 0;
+
+		if (ALLOW_TIME_LOGGING == 1)
+            uncompress_clock = clock();
+        
+		int result = uncompress(uncompressbuf, &originallen, compressedstr, compressedlen);
+
+		if (ALLOW_TIME_LOGGING == 1)
+            uncompress_time += (clock()-uncompress_clock)/(double) CLOCKS_PER_SEC;
+        
+		//cout <<" P:" << myrank << " uncompressedsize: " << originallen << endl;
+		
+		//if(myrank == 0) cout << "P:" << myrank << endl << string(outstring) << endl;
 		MPI::COMM_WORLD.Barrier();
+		delete[] compressedstr;
+		extract_words((char*)uncompressbuf, originallen, vv, size);
 
-		extract_words((char*)uncompressbuf, uncompresslength, vv, size);
 		char *recvdata = new char[1];
+		delete[] uncompressbuf;
 		int totalrecvsize=0, totalrecv_strings=0;
-
+		
 
 		for( int i=0 ; i < size ; i++ )
 		{
@@ -188,6 +226,7 @@ void disambiguate(int &myrank , int &size)
         		// memptr += sizeof(int);
         		for( auto &entry : vv[i] )
 		        {
+		        	
 		        	int b = entry.size()+1;
 		            memcpy( memptr , &b , sizeof(int));
 		            memptr += sizeof(int);
@@ -225,6 +264,7 @@ void disambiguate(int &myrank , int &size)
 			if(myrank != p)
 				vv[p].clear();
 		}
+		//vv.clear();
 		// cout << totalrecv_strings<<endl;
 		//if(myrank == 0)
 		// for(int j =0; j< 200 ; j ++)
@@ -256,19 +296,40 @@ void disambiguate(int &myrank , int &size)
 	         	delete []str;
         	//}
 		}
-
 		for(auto &sentence : vv[myrank])
+		{			
 			wsd(sentence, vtuplestowrite);
+		}
+		vv[myrank].clear();
 		delete[] recvdata;
 		// //write to file;
 		for(auto &entry: vtuplestowrite)
 		{
-			//cout << std::get<0>(entry)<<" : " << std::get<1>(entry)<<" : " << std::get<2>(entry)<<" : " << endl;
-			myfile << std::get<0>(entry)<<" : " << std::get<1>(entry)<<" : " << std::get<2>(entry)<<"\n";
+			
+			if(WRITE_WSD_TO_FILE == 1)
+                myfile << std::get<0>(entry)<<" : " << std::get<1>(entry)<<" : " << std::get<2>(entry)<<"\n";
+            else
+                cout << std::get<0>(entry)<<" : " << std::get<1>(entry)<<" : " << std::get<2>(entry)<<"\n";
 		}
-
-
+		vtuplestowrite.clear();
 	}
-	if( myrank == size-1 )cout<<endl<<"Time taken for wsd" << (clock()-wsdtime)/(double) CLOCKS_PER_SEC << "\n";
+	
+	if (ALLOW_TIME_LOGGING == 1)
+        if (WRITE_OUTPUT_TO_FILE == 1)
+            outputstream <<"P:" << myrank << ". Uncompress time: " << uncompress_time <<endl;
+        else   
+            cout <<"P:" << myrank << ". Uncompress time: " << uncompress_time << endl;        
+    
+
+    if (ALLOW_TIME_LOGGING == 1)
+        if (WRITE_OUTPUT_TO_FILE == 1)
+            outputstream <<"P:" << myrank <<"WSD Time" << (clock()-wsdtime)/(double) CLOCKS_PER_SEC << "\n";
+        else   
+            cout <<"P:" << myrank <<"WSD Time" << (clock()-wsdtime)/(double) CLOCKS_PER_SEC << "\n";
+       
+    
+    //if( myrank == size-1 )cout<<endl<<"Time taken for wsd" << (clock()-wsdtime)/(double) CLOCKS_PER_SEC << "\n";
+
 	myfile.close();
 }
+

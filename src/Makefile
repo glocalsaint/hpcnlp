@@ -1,4 +1,4 @@
-CC=mpic++
+CC=mpicxx
 CFLAGS=-std=c++11 
 BFLAGS=-lboost_system -lboost_filesystem  
  
@@ -7,15 +7,15 @@ all: clean wsd.o utility.o fileprocessing.o firstlevel.o secondlevel.o mpi.o
 mpi.o:
 	$(CC) -c hashselection.cpp $(CFLAGS) -o mpi.o
 utility.o:
-	$(CC) -c utility.cpp $(CFLAGS) $(BFLAGS) -o utility.o
+	$(CC) -c utility.cpp $(CFLAGS) $(BFLAGS) -l sqlite3 -o utility.o
 fileprocessing.o:
 	$(CC) -c fileprocessing.cpp $(CFLAGS) -lz  -o fileprocessing.o
 firstlevel.o:
 	$(CC) -c firstlevel.cpp $(CFLAGS) -o firstlevel.o
 secondlevel.o:
-	$(CC) -c secondlevel.cpp $(CFLAGS) -o secondlevel.o
+	$(CC) -c secondlevel.cpp $(CFLAGS) -l sqlite3 -o secondlevel.o
 wsd.o:
-	$(CC) -c wsd.cpp $(CFLAGS) -o wsd.o  
+	$(CC) -c wsd.cpp $(CFLAGS) -lz -l sqlite3 -o wsd.o  
 run: all
 	mpirun -np 64 hash > o.out      
 clean:

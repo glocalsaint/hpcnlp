@@ -127,6 +127,16 @@ void process_firstlevel(int &myrank , int &size){
 
     delete[] recvdata_head;
     if ( myrank == 0 ) 
-        cout << "Process: " << myrank << ". Hashing done. " << "\n";
-    if(myrank==0) cout<<" Time taken for hashing FL words: "<< (clock()-hashingtime)/(double) CLOCKS_PER_SEC<<"\n";
+    {
+        if (ALLOW_TIME_LOGGING == 1)
+            if (WRITE_OUTPUT_TO_FILE == 1)
+                outputstream <<" Time taken for hashing FL words: "<< (clock()-hashingtime)/(double) CLOCKS_PER_SEC<<"\n";
+            else   
+                cout <<" Time taken for hashing FL words: "<< (clock()-hashingtime)/(double) CLOCKS_PER_SEC<<"\n";
+
+        if (WRITE_OUTPUT_TO_FILE == 1)
+            outputstream << "Process: " << myrank << ". Hashing done. " << "\n";
+        else   
+            cout << "Process: " << myrank << ". Hashing done. " << "\n";
+    }
 }

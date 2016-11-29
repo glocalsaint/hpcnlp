@@ -25,10 +25,10 @@
     #include <fstream>
     #include <iomanip>
     #include "graph.hpp"
+    #include <sqlite3.h> 
+    //#include "config.hpp"
+     
     
-    #define ROUNDROBINSIZE 500
-    #define STRING_LENGTH 30
-    #define NUMWORDS 20
     using namespace std;
 
 
@@ -38,13 +38,18 @@
     extern std::vector<std::tuple<unsigned char*, long unsigned int, long unsigned int>> compressedvector;
     //extern class Graph;
     extern std::unordered_map<string, Graph*> stringtographmap;
-    
+    extern std::ofstream outputstream;
+
     extern std::set<string> mystringset;
+    extern sqlite3 *db;
    
-    void process_files();
+    void process_files(double&);
     void process_firstlevel(int&, int&);
-    void process_secondlevel(int&, int&);
+    void process_secondlevel(int&, int&, double&);
     void disambiguate(int &myrank , int &size);
+  
+    // void write_to_file(string &content)
+    // {
 
 
 
@@ -56,8 +61,12 @@
     void insert_to_localmap(std::set<string> &stringset, std::unordered_map<string,std::unordered_map<string,int>> &localmap);
     void process_string(string &str, std::unordered_map<string,std::unordered_map<string,int>> &localmap, std::unordered_map<string, int> &frequencymap);
     void process_buffer(char *str, int length, std::unordered_map<string,std::unordered_map<string,int>> &localmap, std::unordered_map<string, int> &frequencymap);
+    bool contains_punctordigit(const string &str);
 
 
     void process_files();
+
+    void process_mem_usage(double& vm_usage, double& resident_set);
+    
 
     #endif
