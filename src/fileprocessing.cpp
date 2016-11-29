@@ -1,21 +1,41 @@
 #include "utility.hpp"
 #include "mpi.h"
 #include "zlib-1.2.8/zlib.h"
-//#include "graph.hpp"
-void process_files()
+#include "config.hpp"
+using namespace config;
+void process_files(double &processingtime)
 {
-    std::vector<string> files=getallfilenames("/work/scratch/vv52zasu/inputfiles/");
+    std::vector<string> files=getallfilenames(inputfiles_location);
     //std::vector<string> files=getallfilenames("/home/vv52zasu/mpi/inputfiles/");
     MPI::Status status; 
     int myrank = MPI::COMM_WORLD.Get_rank();
     int size = MPI::COMM_WORLD.Get_size();
     int filecount=0;
-/*//////Read files in a loop and write initial data to localmap/////*/
+    processingtime = 0;
 
+    clock_t compress_clock = clock();
+    double compress_time = 0;
+    
+
+/*//////Read files in a loop and write initial data to localmap/////*/
+    long int totalcompressedsize = 0;
     for(std::vector<string>::iterator it = files.begin(); it != files.end(); ++it)
     {
-        if(myrank ==0) std::cout<<"Processing file:"<<(*it).c_str()<<endl;
-
+        if(myrank ==0)
+        {
+            //#if ALLOW_TIME_LOGGING == 1
+                if(WRITE_OUTPUT_TO_FILE == 1)
+                    outputstream <<"Processing file:"<<(*it).c_str()<<endl;
+                else   
+                    cout <<"Processing file:"<<(*it).c_str()<<endl;
+                
+            //#endif
+        }
+        clock_t starttime;
+        if( ALLOW_TIME_LOGGING == 1)
+             starttime = clock();
+        
+        
         MPI::File thefile = MPI::File::Open(MPI::COMM_WORLD, (*it).c_str(), MPI::MODE_RDONLY, MPI::INFO_NULL);
         MPI::Offset filesize = thefile.Get_size();
 
@@ -34,7 +54,7 @@ void process_files()
 
         MPI::COMM_WORLD.Barrier();
 
-        char * pch, *lastsentence;
+        char * pch, *lastsentence=nullptr;
         pch=strchr(bufchar,'\n');
         while (pch!=NULL)
         {
@@ -43,7 +63,7 @@ void process_files()
         }
 
         int sendcharcount = count -( lastsentence - bufchar );
-        if(sendcharcount < 0 || sendcharcount > 300000) sendcharcount =0;
+        if(sendcharcount < 0 || sendcharcount > 300000 || lastsentence == nullptr) sendcharcount =0;
         //cout << "CHUNKSIZE: "<< CHUNKSIZE << "count: " << count << " sendcharcount: " << sendcharcount << endl;
         //cout << lastsentence << endl;
         char *recvptr;
@@ -76,6 +96,7 @@ void process_files()
         //if(recvcount >= 300000) cout << "Process: " << myrank << " exceeded size limit"<<endl;
         memcpy(bufchar, recvptr, recvcount);
         int finalcount = lastsentence - bufchar;
+        if(lastsentence==nullptr) finalcount = recvcount+CHUNKSIZE;
         // cout << "Final count: " << finalcount << " total allocated: " << CHUNKSIZE<< " count + recvcount - sendcharcount: " << count+ recvcount -sendcharcount<< endl;
         if( finalcount > CHUNKSIZE+300000) {
             cout << "Process: " << myrank <<  " exceeded size limit"<< "Final Count: "<<finalcount<<endl;
@@ -86,29 +107,77 @@ void process_files()
             //  }
         }
 
+        if( ALLOW_TIME_LOGGING == 1)
+            compress_clock = clock();
+        
+        
+
         long unsigned int destsize = compressBound(finalcount);
         unsigned char *compressedstr = new unsigned char[destsize];
         int result = compress(compressedstr, &destsize, (unsigned char*)bufchar, finalcount);
+        unsigned char *newcompressedstr = new unsigned char[destsize+1];
+        memcpy(newcompressedstr, compressedstr, destsize);
+        newcompressedstr[destsize]='\0';
+        delete[] compressedstr;
+        compressedvector.push_back(std::make_tuple(newcompressedstr, destsize, finalcount));
+        totalcompressedsize+=destsize;
+        if( ALLOW_TIME_LOGGING == 1)
+            compress_time += (clock()-compress_clock)/(double) CLOCKS_PER_SEC;
         
-        compressedvector.push_back(std::make_tuple(compressedstr, destsize, finalcount));
+        
+        // auto front = compressedvector.front();
+
+        // compressedstr = std::get<0>(front);
+
+
+        // auto compressedlen = std::get<1>(front);
+        // cout <<" Process: " << myrank << " compressedsize: " << compressedlen << endl;
+        // auto originallen = std::get<2>(front);
+        // unsigned char *uncompressbuf = new unsigned char[(int)originallen];
+        // long unsigned int uncompresslength;
+        // result = uncompress(uncompressbuf, &uncompresslength, compressedstr, compressedlen);
+        // cout <<" Process: " << myrank << " uncompressedsize: " << uncompresslength << endl;
+        // char *outstring =new char[1000];
+        // memcpy(outstring, uncompressbuf, 1000);
+        // if(myrank == 0) cout << "Process: " << myrank << endl << string(outstring) << endl;
+
+
         //string finalstr(bufchar, finalcount );
         // //cout << recvcount << endl;
         delete[] recvptr;
         // //cout << finalstr<<endl;
         //process_string(finalstr, localmap, frequencymap);
         process_buffer(bufchar, finalcount, localmap, frequencymap);
+        if (ALLOW_TIME_LOGGING == 1)
+            processingtime += (clock()-starttime)/(double) CLOCKS_PER_SEC;
+        
+
         int msize = (int)mapsize(localmap)+(int)((frequencymap.size()* 20)/(1024*1024));
         int max;
         MPI_Reduce(&msize, &max, 1, MPI_INT, MPI_MAX, 0, MPI_COMM_WORLD);
         
         delete[] (bufchar_header);
+
         if(myrank ==0){
             cout<<"MaxMapsize: "<<max<<endl;    
-            std::cout<<"Processing file Ended: "<<(*it).c_str()<<endl;
+            if (WRITE_OUTPUT_TO_FILE == 1)
+                outputstream <<"Processing file Ended: "<<(*it).c_str()<<endl;
+            else   
+                cout <<"Processing file Ended: "<<(*it).c_str()<<endl;
+            
+            
         }
         filecount++;
         //if(filecount%100 == 0)process_firstlevel(myrank, size);
 
          
     }
+
+
+
+    if (ALLOW_TIME_LOGGING == 1)
+        if (WRITE_OUTPUT_TO_FILE == 1)
+            outputstream <<"Process: " << myrank << ". Compress time: " << compress_time << ". Compression size: " << totalcompressedsize/(1024*1024) <<" MB."<<endl;
+        else   
+            cout <<"Process: " << myrank << ". Compress time: " << compress_time << ". Compression size: " << totalcompressedsize/(1024*1024) <<" MB."<<endl;
 }
